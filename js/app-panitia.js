@@ -539,8 +539,11 @@ function initAdminScanner() {
   if (!btnStart) return;
   btnStart.addEventListener('click', () => {
     window.startAdminScan();
-    // Fungsi async agar bisa fallback ke GAS jika data tidak ada di localStorage
-    async function processAdminScanResult(qrText) {
+  });
+}
+
+// Fungsi async agar bisa fallback ke GAS jika data tidak ada di localStorage
+async function processAdminScanResult(qrText) {
       let searchKey = qrText;
       try {
         const parsed = JSON.parse(qrText);
