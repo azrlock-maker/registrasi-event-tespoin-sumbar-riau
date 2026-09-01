@@ -466,7 +466,7 @@ function showDuplicateAlert(existing) {
         <span class="badge badge-warning">NO PESERTA: ${existing.regId} | TIKET: ${existing.ticketCode || existing.regId}</span>
       </div>
       <div class="mt-3">
-        <button class="btn btn-emerald" onclick="showExistingTicket('${existing.regId}')">
+        <button class="btn btn-emerald" onclick="renderTicketSuccess(${JSON.stringify(existing).replace(/"/g, '&quot;')}, 'reg-result-container')">
           <i class="ri-qr-code-line"></i> Tampilkan Barcode QR Tiket Saya
         </button>
       </div>
@@ -835,21 +835,49 @@ function showUploadSuccessMessage(item) {
 }
 
 // 6. Cek Status Pendaftaran (Mendukung Cari via No WA 08xx, 628xx, 8xx, No Peserta, Kode Tiket)
+// 6. Cek Status Pendaftaran — Fallback Fetch GAS jika tidak ada di localStorage
 function initCheckStatusForm() {
   const form = document.getElementById('check-status-form');
   if (!form) return;
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const query = document.getElementById('status-query').value.trim();
     if (!query) return;
 
-    const data = getLocalData();
-    const found = findParticipantByQuery(data, query);
-
     const resultDiv = document.getElementById('status-result-container');
     if (!resultDiv) return;
+
+    // Tampilkan loading
+    resultDiv.innerHTML = `
+      <div class="glass-panel mt-3 text-center" style="padding: 24px;">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.8rem; color: var(--primary);"></i>
+        <p style="color: var(--text-muted); margin-top: 8px;">Sedang mencari data...</p>
+      </div>
+    `;
+
+    // Langkah 1: Cari di localStorage lokal
+    let data = getLocalData();
+    let found = findParticipantByQuery(data, query);
+
+    // Langkah 2: Jika tidak ditemukan lokal, fetch dari GAS (untuk peserta yang daftar di HP/browser lain)
+    if (!found && !CONFIG.USE_MOCK_DATA) {
+      try {
+        const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+        const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+        const cacheBuster = Date.now();
+        const resp = await fetch(`${targetGasUrl}?action=getData&t=${cacheBuster}`, { redirect: 'follow' });
+        const text = await resp.text();
+        const json = JSON.parse(text);
+        if (json.status === 'success' && Array.isArray(json.data)) {
+          saveLocalData(json.data); // Cache ke lokal untuk query berikutnya
+          found = findParticipantByQuery(json.data, query);
+        }
+      } catch(e) {
+        console.warn('[GAS getData fallback]', e);
+      }
+    }
 
     if (found) {
       let badgeBayarClass = "badge-warning";
@@ -965,6 +993,16 @@ function processSelfPresensi(userQuery, qrDecoded) {
   const jamNow = new Date().toLocaleString('id-ID');
   item.statusHadir = `HADIR (${jamNow})`;
   saveLocalData(localData);
+
+  // ✅ Sync presensi mandiri ke Google Sheet via GAS
+  const customInfoPresensi = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrlPresensi = customInfoPresensi.gasApiUrl || CONFIG.GAS_API_URL;
+  if (!CONFIG.USE_MOCK_DATA && gasUrlPresensi) {
+    fetch(gasUrlPresensi, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'presensi', regId: item.regId })
+    }).catch(err => console.error('[GAS presensi mandiri sync error]', err));
+  }
 
   resultContainer.innerHTML = `
     <div class="ticket-card animate-fadeIn" style="border-color: var(--accent-emerald);">

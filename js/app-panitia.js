@@ -88,7 +88,7 @@ function initAdminAuth() {
         return;
       }
 
-      alert("Username atau Password yang Anda masukkan salah!\n\n👑 User Admin: admin / admin2026\n👤 User Panitia: panitia / panitia2026");
+      alert("Username atau Password yang Anda masukkan salah!\n\nMohon periksa kembali dan coba lagi.");
     });
   }
 }
@@ -117,7 +117,9 @@ window.adminLogout = function() {
 function initGoogleSheetButton() {
   const btnSheet = document.getElementById('btn-open-sheet');
   if (btnSheet) {
-    btnSheet.href = CONFIG.GOOGLE_SHEET_URL;
+    // Prioritas: URL dari setting admin cloud → CONFIG default
+    const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+    btnSheet.href = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL;
   }
 }
 
@@ -448,20 +450,40 @@ function initOTSForm() {
 // 6. Scanner Kamera Panitia (`html5-qrcode`)
 let adminQrScanner = null;
 
+// Fungsi mandiri untuk memulai scan — dipanggil dari tombol utama MAUPUN tombol "Scan Ulang"
+// Menghentikan scanner lama dengan benar sebelum membuat yang baru
+window.startAdminScan = function() {
+  // Hentikan & bersihkan scanner lama jika ada
+  if (adminQrScanner) {
+    try { adminQrScanner.clear(); } catch(e) { console.warn('Scanner clear error:', e); }
+    adminQrScanner = null;
+  }
+
+  // Reset container HTML agar scanner baru bisa dimulai dari kondisi bersih
+  const readerEl = document.getElementById('admin-reader');
+  if (readerEl) readerEl.innerHTML = '';
+
+  // Bersihkan hasil scan sebelumnya
+  const resultEl = document.getElementById('admin-scan-result');
+  if (resultEl) resultEl.innerHTML = '';
+
+  // Buat & jalankan scanner baru
+  adminQrScanner = new Html5QrcodeScanner('admin-reader', { fps: 10, qrbox: 250 });
+  adminQrScanner.render(
+    (decodedText) => {
+      try { adminQrScanner.clear(); } catch(e) {}
+      adminQrScanner = null;
+      processAdminScanResult(decodedText);
+    },
+    (err) => { /* scan failure silent */ }
+  );
+};
+
 function initAdminScanner() {
   const btnStart = document.getElementById('btn-start-admin-scan');
   if (!btnStart) return;
-
   btnStart.addEventListener('click', () => {
-    if (adminQrScanner) {
-      adminQrScanner.clear();
-    }
-
-    adminQrScanner = new Html5QrcodeScanner("admin-reader", { fps: 10, qrbox: 250 });
-    adminQrScanner.render((decodedText) => {
-      adminQrScanner.clear();
-      processAdminScanResult(decodedText);
-    }, (err) => {});
+    window.startAdminScan();
   });
 }
 
@@ -495,7 +517,7 @@ function processAdminScanResult(qrText) {
           <strong>Isi Barcode:</strong> ${String(searchKey).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
         </div>
         <div class="mt-2 text-center">
-          <button class="btn btn-secondary" onclick="initAdminScanner()" style="font-size: 0.85rem; padding: 6px 14px;">
+          <button class="btn btn-secondary" onclick="startAdminScan()" style="font-size: 0.85rem; padding: 6px 14px;">
             <i class="ri-qr-scan-line"></i> Scan Ulang
           </button>
         </div>

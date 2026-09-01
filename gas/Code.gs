@@ -144,7 +144,18 @@ function handleRegister(data, customEmail) {
   }
 
   // Buat No Registrasi & Kode Tiket Unik
-  const regId = data.regId || ("TP-" + String(rows.length).padStart(3, '0'));
+  // Cek keunikan regId untuk mencegah duplikat saat ada pendaftaran bersamaan
+  let regId = data.regId;
+  if (!regId) {
+    const existingIds = rows.slice(1).map(r => String(r[1]));
+    let counter = rows.length; // rows.length sudah termasuk header, cocok sebagai angka urut berikutnya
+    let candidate = "TP-" + String(counter).padStart(3, '0');
+    while (existingIds.includes(candidate)) {
+      counter++;
+      candidate = "TP-" + String(counter).padStart(3, '0');
+    }
+    regId = candidate;
+  }
   const ticketCode = data.ticketCode || ("TK26-" + Math.random().toString(36).substring(2, 8).toUpperCase());
   const timestamp = new Date().toLocaleString('id-ID');
 
@@ -381,9 +392,11 @@ function handleUploadPoster(base64Data, fileName) {
     // Set akses publik agar bisa ditampilkan di <img> tag semua browser
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-    // Gunakan format URL direct image (bisa langsung dipakai sebagai src gambar)
     const fileId = file.getId();
-    const directUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
+
+    // Gunakan format thumbnail Google Drive — lebih andal dari uc?export=view
+    // Format ini tidak memerlukan cookies dan tidak kena CORS di browser manapun
+    const directUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1200-h1600";
 
     return responseJSON({ status: "success", posterUrl: directUrl, fileId: fileId });
   } catch (err) {
@@ -479,11 +492,17 @@ function formatRowToObject(row) {
 }
 
 // Kirim Email Notifikasi ke Panitia
-function sendAdminNotification(subject, bodyText) {
+// Prioritas email: customEmail (dari caller) → ADMIN_NOTIFICATION_EMAIL (config GAS) → email pemilik GAS
+function sendAdminNotification(subject, bodyText, customEmail) {
   try {
-    const targetEmail = (ADMIN_NOTIFICATION_EMAIL && ADMIN_NOTIFICATION_EMAIL.trim() !== "")
-      ? ADMIN_NOTIFICATION_EMAIL.trim()
-      : Session.getActiveUser().getEmail();
+    let targetEmail = "";
+    if (customEmail && customEmail.trim() !== "") {
+      targetEmail = customEmail.trim();
+    } else if (ADMIN_NOTIFICATION_EMAIL && ADMIN_NOTIFICATION_EMAIL.trim() !== "") {
+      targetEmail = ADMIN_NOTIFICATION_EMAIL.trim();
+    } else {
+      targetEmail = Session.getActiveUser().getEmail();
+    }
 
     if (targetEmail) {
       MailApp.sendEmail(targetEmail, "[NOTIFIKASI EVENT] " + subject, bodyText);
