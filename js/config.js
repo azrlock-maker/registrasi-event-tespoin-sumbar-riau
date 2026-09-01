@@ -23,7 +23,7 @@ const CONFIG = {
     // 👤 Role 2: Panitia Registrasi (Akses Operasional: Data Peserta, Verifikasi Bayar, Scanner, & Kios)
     PANITIA: {
       USERNAME: "panitia",
-      PASSWORD: "panitia1129"
+      PASSWORD: "panitia123"
     }
   },
 

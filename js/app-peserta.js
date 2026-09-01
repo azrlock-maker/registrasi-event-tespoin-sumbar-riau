@@ -955,12 +955,41 @@ function initSelfPresensiScanner() {
   });
 }
 
-function processSelfPresensi(userQuery, qrDecoded) {
-  const localData = getLocalData();
-  const item = findParticipantByQuery(localData, userQuery);
-
+// Async: fallback ke GAS jika peserta tidak ada di localStorage lokal
+// Juga verifikasi statusBayar terbaru dari GAS sebelum tolak presensi
+async function processSelfPresensi(userQuery, qrDecoded) {
   const resultContainer = document.getElementById('self-scan-result');
   if (!resultContainer) return;
+
+  // Tampilkan loading selama proses pencarian
+  resultContainer.innerHTML = `
+    <div class="glass-panel mt-3 text-center" style="padding: 20px;">
+      <i class="ri-loader-4-line ri-spin" style="font-size: 1.6rem; color: var(--primary);"></i>
+      <p style="color: var(--text-muted); margin-top: 8px; font-size: 0.9rem;">Memverifikasi data peserta...</p>
+    </div>
+  `;
+
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+
+  // Langkah 1: Cari di localStorage lokal
+  let localData = getLocalData();
+  let item = findParticipantByQuery(localData, userQuery);
+
+  // Langkah 2: Jika tidak ditemukan lokal → fetch dari GAS (peserta dari HP lain)
+  if (!item && !CONFIG.USE_MOCK_DATA && gasUrl) {
+    try {
+      const resp = await fetch(`${gasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+      const json = JSON.parse(await resp.text());
+      if (json.status === 'success' && Array.isArray(json.data)) {
+        saveLocalData(json.data);
+        localData = json.data;
+        item = findParticipantByQuery(json.data, userQuery);
+      }
+    } catch(e) {
+      console.warn('[processSelfPresensi GAS fallback]', e);
+    }
+  }
 
   if (!item) {
     resultContainer.innerHTML = `
@@ -979,7 +1008,23 @@ function processSelfPresensi(userQuery, qrDecoded) {
     return;
   }
 
-  if (item.statusBayar !== "LUNAS") {
+  // Langkah 3: Jika statusBayar lokal bukan LUNAS → verifikasi ke GAS
+  // (Antisipasi: admin sudah set LUNAS tapi cache peserta masih stale)
+  if (item.statusBayar !== 'LUNAS' && !CONFIG.USE_MOCK_DATA && gasUrl) {
+    try {
+      const resp = await fetch(`${gasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+      const json = JSON.parse(await resp.text());
+      if (json.status === 'success' && Array.isArray(json.data)) {
+        saveLocalData(json.data);
+        const freshItem = findParticipantByQuery(json.data, userQuery);
+        if (freshItem) item = freshItem; // Gunakan data terbaru dari GAS
+      }
+    } catch(e) {
+      console.warn('[processSelfPresensi statusBayar refresh]', e);
+    }
+  }
+
+  if (item.statusBayar !== 'LUNAS') {
     resultContainer.innerHTML = `
       <div class="glass-panel mt-2" style="border-color: var(--accent-rose);">
         <h4 style="color: var(--accent-rose);"><i class="ri-error-warning-line"></i> Presensi Gagal - Pembayaran Belum Lunas</h4>
@@ -994,11 +1039,9 @@ function processSelfPresensi(userQuery, qrDecoded) {
   item.statusHadir = `HADIR (${jamNow})`;
   saveLocalData(localData);
 
-  // ✅ Sync presensi mandiri ke Google Sheet via GAS
-  const customInfoPresensi = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-  const gasUrlPresensi = customInfoPresensi.gasApiUrl || CONFIG.GAS_API_URL;
-  if (!CONFIG.USE_MOCK_DATA && gasUrlPresensi) {
-    fetch(gasUrlPresensi, {
+  // Sync presensi mandiri ke Google Sheet via GAS
+  if (!CONFIG.USE_MOCK_DATA && gasUrl) {
+    fetch(gasUrl, {
       method: 'POST',
       body: JSON.stringify({ action: 'presensi', regId: item.regId })
     }).catch(err => console.error('[GAS presensi mandiri sync error]', err));
@@ -1022,8 +1065,9 @@ function processSelfPresensi(userQuery, qrDecoded) {
         <div><strong>Waktu Presensi:</strong> ${jamNow}</div>
       </div>
       <p class="mt-2" style="color: #cbd5e1; font-size: 0.9rem;">
-        Silakan tunjukkan layar ini ke Meja Souvenir untuk mengambil Kaos Ukuran <strong>${item.ukuranBaju}</strong> & Tiket Fisik No <strong>${item.regId}</strong>.
+        Silakan tunjukkan layar ini ke Meja Souvenir untuk mengambil Kaos Ukuran <strong>${item.ukuranBaju}</strong> &amp; Tiket Fisik No <strong>${item.regId}</strong>.
       </p>
     </div>
   `;
 }
+

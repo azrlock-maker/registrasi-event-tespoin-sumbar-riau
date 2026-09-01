@@ -108,7 +108,7 @@ function applyRolePermissions(role) {
   }
 }
 
-window.adminLogout = function() {
+window.adminLogout = function () {
   sessionStorage.removeItem('ADMIN_ROLE');
   window.location.reload();
 };
@@ -169,7 +169,7 @@ function findParticipantByQuery(dataArray, query) {
   if (!dataArray || !query) return null;
   const qClean = String(query).trim();
   const qLower = qClean.toLowerCase();
-  
+
   return dataArray.find(item => {
     // 1. Cek No. Peserta / ID Registrasi (misal: TP-001)
     if (item.regId && item.regId.toLowerCase() === qLower) return true;
@@ -189,7 +189,8 @@ function findParticipantByQuery(dataArray, query) {
 }
 
 // 4. Load & Render Tabel Live Data Peserta
-function loadAdminTableData() {
+// Tampilkan dari localStorage dulu (instant), lalu fetch GAS di background untuk data terbaru
+async function loadAdminTableData() {
   const tableBody = document.getElementById('admin-table-body');
   const countHadir = document.getElementById('stat-total-hadir');
   const countTotal = document.getElementById('stat-total-peserta');
@@ -197,7 +198,34 @@ function loadAdminTableData() {
 
   if (!tableBody) return;
 
-  const data = getLocalData();
+  // Render dari localStorage dulu (instant, tidak ada delay)
+  let data = getLocalData();
+  renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
+
+  // Fetch data terbaru dari GAS di background (agar semua registrasi peserta via GAS tampil)
+  if (!CONFIG.USE_MOCK_DATA) {
+    try {
+      const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+      const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+      if (targetGasUrl) {
+        const resp = await fetch(`${targetGasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+        const text = await resp.text();
+        const json = JSON.parse(text);
+        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+          // Merge: gabungkan OTS lokal dengan data GAS (GAS adalah source of truth)
+          saveLocalData(json.data);
+          data = json.data;
+          renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
+        }
+      }
+    } catch (e) {
+      console.warn('[loadAdminTableData GAS sync error]', e);
+    }
+  }
+}
+
+// Helper: Render tabel data peserta dari array data
+function renderAdminTable(data, tableBody, countHadir, countTotal, countLunas) {
   const filterInput = document.getElementById('admin-search-input');
   const filterValue = filterInput ? filterInput.value.trim().toLowerCase() : "";
 
@@ -213,7 +241,7 @@ function loadAdminTableData() {
     );
   });
 
-  // Statistics (Fix logic BELUM HADIR agar tidak terhitung HADIR)
+  // Statistics
   const total = data.length;
   const hadirCount = data.filter(i => i.statusHadir !== 'BELUM HADIR' && i.statusHadir.includes('HADIR')).length;
   const lunasCount = data.filter(i => i.statusBayar === 'LUNAS').length;
@@ -222,7 +250,6 @@ function loadAdminTableData() {
   if (countTotal) countTotal.textContent = total;
   if (countLunas) countLunas.textContent = lunasCount;
 
-  // Render Rekapitulasi Pesanan Baju per Ukuran
   renderShirtSizeSummary(data);
 
   tableBody.innerHTML = "";
@@ -311,11 +338,11 @@ function renderShirtSizeSummary(data) {
   });
 }
 
-window.filterAdminTable = function() {
+window.filterAdminTable = function () {
   loadAdminTableData();
 };
 
-window.adminSetLunas = async function(regId) {
+window.adminSetLunas = async function (regId) {
   if (!confirm(`Konfirmasi setujui LUNAS untuk ${regId}?`)) return;
 
   const data = getLocalData();
@@ -344,7 +371,7 @@ window.adminSetLunas = async function(regId) {
   }
 };
 
-window.adminSetHadir = async function(regId) {
+window.adminSetHadir = async function (regId) {
   const data = getLocalData();
   const item = data.find(i => i.regId === regId);
   if (item) {
@@ -395,7 +422,7 @@ function initOTSForm() {
   const form = document.getElementById('ots-form');
   if (!form) return;
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     const nama = document.getElementById('ots-nama').value.trim();
@@ -437,6 +464,34 @@ function initOTSForm() {
     data.unshift(newRecord);
     saveLocalData(data);
 
+    // ✅ Sync OTS ke GAS agar peserta COD masuk Google Sheet
+    const customInfoOTS = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+    const gasUrlOTS = customInfoOTS.gasApiUrl || CONFIG.GAS_API_URL;
+    if (!CONFIG.USE_MOCK_DATA && gasUrlOTS) {
+      try {
+        const resp = await fetch(gasUrlOTS, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'register',
+            data: newRecord,
+            adminEmail: customInfoOTS.adminEmail || ''
+          })
+        });
+        const json = JSON.parse(await resp.text());
+        // Jika GAS menetapkan regId berbeda (konflik angka) → update data lokal
+        if (json.status === 'success' && json.data && json.data.regId !== newRecord.regId) {
+          const idx = data.findIndex(i => i.regId === newRecord.regId);
+          if (idx !== -1) {
+            data[idx].regId = json.data.regId;
+            data[idx].ticketCode = json.data.ticketCode || newRecord.ticketCode;
+            saveLocalData(data);
+          }
+        }
+      } catch(e) {
+        console.warn('[OTS GAS sync error — data tersimpan lokal]', e);
+      }
+    }
+
     alert(`Pendaftaran COD/OTS Berhasil!\nNo. Peserta: ${newRegId}\nKode Tiket: ${newTicketCode}`);
     form.reset();
     loadAdminTableData();
@@ -452,10 +507,10 @@ let adminQrScanner = null;
 
 // Fungsi mandiri untuk memulai scan — dipanggil dari tombol utama MAUPUN tombol "Scan Ulang"
 // Menghentikan scanner lama dengan benar sebelum membuat yang baru
-window.startAdminScan = function() {
+window.startAdminScan = function () {
   // Hentikan & bersihkan scanner lama jika ada
   if (adminQrScanner) {
-    try { adminQrScanner.clear(); } catch(e) { console.warn('Scanner clear error:', e); }
+    try { adminQrScanner.clear(); } catch (e) { console.warn('Scanner clear error:', e); }
     adminQrScanner = null;
   }
 
@@ -471,7 +526,7 @@ window.startAdminScan = function() {
   adminQrScanner = new Html5QrcodeScanner('admin-reader', { fps: 10, qrbox: 250 });
   adminQrScanner.render(
     (decodedText) => {
-      try { adminQrScanner.clear(); } catch(e) {}
+      try { adminQrScanner.clear(); } catch (e) { }
       adminQrScanner = null;
       processAdminScanResult(decodedText);
     },
@@ -484,25 +539,44 @@ function initAdminScanner() {
   if (!btnStart) return;
   btnStart.addEventListener('click', () => {
     window.startAdminScan();
-  });
-}
+    // Fungsi async agar bisa fallback ke GAS jika data tidak ada di localStorage
+    async function processAdminScanResult(qrText) {
+      let searchKey = qrText;
+      try {
+        const parsed = JSON.parse(qrText);
+        if (parsed.ticketCode) searchKey = parsed.ticketCode;
+        else if (parsed.regId) searchKey = parsed.regId;
+        else if (parsed.noWa) searchKey = parsed.noWa;
+      } catch (e) { }
 
-function processAdminScanResult(qrText) {
-  let searchKey = qrText;
-  try {
-    const parsed = JSON.parse(qrText);
-    if (parsed.ticketCode) searchKey = parsed.ticketCode;
-    else if (parsed.regId) searchKey = parsed.regId;
-    else if (parsed.noWa) searchKey = parsed.noWa;
-  } catch (e) {}
+      const resultDiv = document.getElementById('admin-scan-result');
+      if (!resultDiv) return;
 
-  const data = getLocalData();
-  const item = findParticipantByQuery(data, searchKey);
-  const resultDiv = document.getElementById('admin-scan-result');
-  if (!resultDiv) return;
+      // Langkah 1: Cari di localStorage
+      let data = getLocalData();
+      let item = findParticipantByQuery(data, searchKey);
 
-  if (!item) {
-    resultDiv.innerHTML = `
+      // Langkah 2: Jika tidak ditemukan lokal, fetch dari GAS
+      if (!item && !CONFIG.USE_MOCK_DATA) {
+        resultDiv.innerHTML = `<div style="padding:16px; color:var(--text-muted); text-align:center;"><i class="ri-loader-4-line ri-spin"></i> Memverifikasi ke server...</div>`;
+        try {
+          const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+          const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+          const resp = await fetch(`${targetGasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+          const text = await resp.text();
+          const json = JSON.parse(text);
+          if (json.status === 'success' && Array.isArray(json.data)) {
+            saveLocalData(json.data);
+            data = json.data;
+            item = findParticipantByQuery(json.data, searchKey);
+          }
+        } catch (e) {
+          console.warn('[processAdminScanResult GAS fallback]', e);
+        }
+      }
+
+      if (!item) {
+        resultDiv.innerHTML = `
       <div class="glass-panel mt-3 animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.12); padding: 22px;">
         <div style="display: flex; align-items: center; gap: 12px;">
           <i class="ri-error-warning-fill" style="font-size: 2.2rem; color: var(--accent-rose);"></i>
@@ -523,30 +597,30 @@ function processAdminScanResult(qrText) {
         </div>
       </div>
     `;
-    return;
-  }
+        return;
+      }
 
-  // Update status presensi
-  const isAlreadyHadir = item.statusHadir.includes('HADIR');
-  const jamNow = new Date().toLocaleString('id-ID');
+      // Update status presensi
+      const isAlreadyHadir = item.statusHadir.includes('HADIR');
+      const jamNow = new Date().toLocaleString('id-ID');
 
-  if (!isAlreadyHadir) {
-    item.statusHadir = `HADIR (${jamNow})`;
-    saveLocalData(data);
+      if (!isAlreadyHadir) {
+        item.statusHadir = `HADIR (${jamNow})`;
+        saveLocalData(data);
 
-    const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-    const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+        const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+        const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
 
-    if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-      fetch(targetGasUrl, {
-        method: "POST",
-        body: JSON.stringify({ action: "presensi", regId: item.regId })
-      }).catch(err => console.error("GAS presensi scan sync error:", err));
-    }
-  }
+        if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+          fetch(targetGasUrl, {
+            method: "POST",
+            body: JSON.stringify({ action: "presensi", regId: item.regId })
+          }).catch(err => console.error("GAS presensi scan sync error:", err));
+        }
+      }
 
-  resultDiv.innerHTML = `
-    <div class="ticket-card animate-fadeIn mt-2" style="border-color: ${item.statusBayar === 'LUNAS' ? 'var(--accent-emerald)' : 'var(--accent-rose)'};">
+      resultDiv.innerHTML = `
+    <div class="ticket-card animate-fadeIn mt-2" style="border-color: ${item.statusBayar === 'LUNAS' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">
       <div class="brand-badge" style="background: ${isAlreadyHadir ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'}; color: ${isAlreadyHadir ? '#fbbf24' : '#34d399'};">
         <i class="ri-checkbox-circle-fill"></i> ${isAlreadyHadir ? 'PESERTA SUDAH PRESENSI SEBELUMNYA' : 'PRESENSI HARI-H BERHASIL!'}
       </div>
@@ -568,69 +642,86 @@ function processAdminScanResult(qrText) {
 
       ${item.statusBayar !== 'LUNAS' ? `
         <div class="mt-3">
-          <button class="btn btn-emerald" onclick="adminSetLunas('${item.regId}'); processAdminScanResult('${qrText}');">
+          <button class="btn btn-emerald" onclick="adminSetLunas('${item.regId}'); startAdminScan();">
             <i class="ri-money-dollar-circle-line"></i> Bayar Cash & Setujui LUNAS
           </button>
         </div>
       ` : ''}
     </div>
   `;
-}
+    }
 
-// 7. Mode Kios Tablet Hands-Free Auto-Loop
-let kioskScanner = null;
+    // 7. Mode Kios Tablet Hands-Free Auto-Loop
+    let kioskScanner = null;
 
-function initKioskScanner() {
-  const btnStartKiosk = document.getElementById('btn-start-kiosk');
-  if (!btnStartKiosk) return;
+    function initKioskScanner() {
+      const btnStartKiosk = document.getElementById('btn-start-kiosk');
+      if (!btnStartKiosk) return;
 
-  btnStartKiosk.addEventListener('click', () => {
-    const kioskSetup = document.getElementById('kiosk-setup');
-    const kioskActive = document.getElementById('kiosk-active');
+      btnStartKiosk.addEventListener('click', () => {
+        const kioskSetup = document.getElementById('kiosk-setup');
+        const kioskActive = document.getElementById('kiosk-active');
 
-    if (kioskSetup) kioskSetup.classList.add('d-none');
-    if (kioskActive) kioskActive.classList.remove('d-none');
+        if (kioskSetup) kioskSetup.classList.add('d-none');
+        if (kioskActive) kioskActive.classList.remove('d-none');
 
-    startKioskLoop();
-  });
-}
+        startKioskLoop();
+      });
+    }
 
-function startKioskLoop() {
-  if (kioskScanner) kioskScanner.clear();
+    function startKioskLoop() {
+      // Pre-fetch data dari GAS jika localStorage kosong (misal tablet baru / fresh)
+      if (!CONFIG.USE_MOCK_DATA && getLocalData().length === 0) {
+        const customInfoKiosk = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+        const gasUrlKiosk = customInfoKiosk.gasApiUrl || CONFIG.GAS_API_URL;
+        if (gasUrlKiosk) {
+          fetch(`${gasUrlKiosk}?action=getData&t=${Date.now()}`, { redirect: 'follow' })
+            .then(r => r.text())
+            .then(t => {
+              const j = JSON.parse(t);
+              if (j.status === 'success' && Array.isArray(j.data) && j.data.length > 0) {
+                saveLocalData(j.data);
+              }
+            })
+            .catch(e => console.warn('[Kiosk GAS prefetch error]', e));
+        }
+      }
 
-  const kioskDisplay = document.getElementById('kiosk-display');
-  if (kioskDisplay) {
-    kioskDisplay.innerHTML = `
+      if (kioskScanner) kioskScanner.clear();
+
+      const kioskDisplay = document.getElementById('kiosk-display');
+      if (kioskDisplay) {
+        kioskDisplay.innerHTML = `
       <div style="color: var(--text-muted); padding: 10px;">
         <i class="ri-qr-scan-2-line" style="font-size: 2rem; color: var(--primary);"></i>
         <p>Silakan arahkan Barcode QR Tiket ke Kamera Tablet...</p>
       </div>
     `;
-  }
+      }
 
-  kioskScanner = new Html5QrcodeScanner("kiosk-reader", { fps: 10, qrbox: 280 });
-  kioskScanner.render((decodedText) => {
-    kioskScanner.clear();
-    handleKioskScanSuccess(decodedText);
-  }, (err) => {});
-}
+      kioskScanner = new Html5QrcodeScanner("kiosk-reader", { fps: 10, qrbox: 280 });
+      kioskScanner.render((decodedText) => {
+        kioskScanner.clear();
+        handleKioskScanSuccess(decodedText);
+      }, (err) => { });
+    }
 
-function handleKioskScanSuccess(qrText) {
-  let searchKey = qrText;
-  try {
-    const parsed = JSON.parse(qrText);
-    if (parsed.ticketCode) searchKey = parsed.ticketCode;
-    else if (parsed.regId) searchKey = parsed.regId;
-    else if (parsed.noWa) searchKey = parsed.noWa;
-  } catch (e) {}
+    function handleKioskScanSuccess(qrText) {
+      let searchKey = qrText;
+      try {
+        const parsed = JSON.parse(qrText);
+        if (parsed.ticketCode) searchKey = parsed.ticketCode;
+        else if (parsed.regId) searchKey = parsed.regId;
+        else if (parsed.noWa) searchKey = parsed.noWa;
+      } catch (e) { }
 
-  const data = getLocalData();
-  const item = findParticipantByQuery(data, searchKey);
-  const kioskDisplay = document.getElementById('kiosk-display');
+      const data = getLocalData();
+      const item = findParticipantByQuery(data, searchKey);
+      const kioskDisplay = document.getElementById('kiosk-display');
 
-  if (!item) {
-    if (kioskDisplay) {
-      kioskDisplay.innerHTML = `
+      if (!item) {
+        if (kioskDisplay) {
+          kioskDisplay.innerHTML = `
         <div class="glass-panel animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.2); padding: 30px;">
           <h2 style="color: var(--accent-rose); font-size: 1.8rem; margin: 0;">
             <i class="ri-error-warning-fill"></i> QR CODE TIDAK DIKENALI!
@@ -644,24 +735,24 @@ function handleKioskScanSuccess(qrText) {
           <p class="mt-2" style="color: #cbd5e1;">Silakan menuju ke Meja Registrasi Panitia.</p>
         </div>
       `;
-    }
-  } else {
-    const jamNow = new Date().toLocaleString('id-ID');
-    item.statusHadir = `HADIR (${jamNow})`;
-    saveLocalData(data);
+        }
+      } else {
+        const jamNow = new Date().toLocaleString('id-ID');
+        item.statusHadir = `HADIR (${jamNow})`;
+        saveLocalData(data);
 
-    const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-    const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+        const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+        const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
 
-    if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-      fetch(targetGasUrl, {
-        method: "POST",
-        body: JSON.stringify({ action: "presensi", regId: item.regId })
-      }).catch(err => console.error("GAS kiosk presensi sync error:", err));
-    }
+        if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+          fetch(targetGasUrl, {
+            method: "POST",
+            body: JSON.stringify({ action: "presensi", regId: item.regId })
+          }).catch(err => console.error("GAS kiosk presensi sync error:", err));
+        }
 
-    if (kioskDisplay) {
-      kioskDisplay.innerHTML = `
+        if (kioskDisplay) {
+          kioskDisplay.innerHTML = `
         <div class="kiosk-welcome-card">
           <h1 style="color:#ffffff; font-size:2rem;"><i class="ri-checkbox-circle-fill" style="color:#34d399;"></i> PRESENSI BERHASIL!</h1>
           <h2 class="mt-1" style="color:var(--accent-cyan); font-size:2.2rem;">SELAMAT DATANG, ${item.nama.toUpperCase()}!</h2>
@@ -674,352 +765,355 @@ function handleKioskScanSuccess(qrText) {
           <p class="mt-2" style="color:#a7f3d0; font-weight:600;">Silakan Ambil Kaos & Tiket Fisik No: ${item.regId}</p>
         </div>
       `;
-    }
-  }
-
-  // Auto Reset kembali ke Mode Scanning setelah 4 detik (Hands-free Loop)
-  setTimeout(() => {
-    startKioskLoop();
-  }, 4000);
-}
-
-// 8. Pengaturan Poster & Info Event + Reset Data Event + Google Integration
-function initEventSettings() {
-  const form = document.getElementById('event-settings-form');
-  if (!form) return;
-
-  // Load Existing Custom Event Info
-  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-  const inputName = document.getElementById('set-event-name');
-  const inputDate = document.getElementById('set-event-date');
-  const inputVenue = document.getElementById('set-event-venue');
-  const inputPosterUrl = document.getElementById('set-poster-url');
-  const inputBankName = document.getElementById('set-bank-name');
-  const inputBankAcc = document.getElementById('set-bank-acc');
-  const inputBankHolder = document.getElementById('set-bank-holder');
-  const inputSelfPresensi = document.getElementById('set-self-presensi');
-  const inputDeadlineMode = document.getElementById('set-deadline-mode');
-  const inputDeadlineDatetime = document.getElementById('set-deadline-datetime');
-  const inputClosedMessage = document.getElementById('set-closed-message');
-  const groupDeadlineDatetime = document.getElementById('group-deadline-datetime');
-
-  // Integrasi Google
-  const inputAdminEmail = document.getElementById('set-admin-email');
-  const inputDriveFolder = document.getElementById('set-drive-folder');
-  const inputGasUrl = document.getElementById('set-gas-url');
-  const inputSheetUrl = document.getElementById('set-sheet-url');
-
-  const paymentInfo = customInfo.paymentInfo || CONFIG.PAYMENT_INFO;
-
-  if (inputName) inputName.value = customInfo.name || CONFIG.EVENT_INFO.NAME;
-  if (inputDate) inputDate.value = customInfo.date || CONFIG.EVENT_INFO.DATE;
-  if (inputVenue) inputVenue.value = customInfo.venue || CONFIG.EVENT_INFO.VENUE;
-  if (inputPosterUrl) inputPosterUrl.value = customInfo.posterUrl || CONFIG.EVENT_INFO.POSTER_URL;
-  if (inputBankName) inputBankName.value = paymentInfo.bankName || CONFIG.PAYMENT_INFO.BANK_NAME;
-  if (inputBankAcc) inputBankAcc.value = paymentInfo.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
-  if (inputBankHolder) inputBankHolder.value = paymentInfo.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
-  if (inputSelfPresensi) {
-    inputSelfPresensi.value = (customInfo.selfPresensiEnabled === false || customInfo.selfPresensiEnabled === "false") ? "false" : "true";
-  }
-  if (inputDeadlineMode) {
-    inputDeadlineMode.value = customInfo.deadlineMode || "unlimited";
-    if (groupDeadlineDatetime) {
-      groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
-    }
-    inputDeadlineMode.addEventListener('change', () => {
-      if (groupDeadlineDatetime) {
-        groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
-      }
-    });
-  }
-  if (inputDeadlineDatetime) {
-    inputDeadlineDatetime.value = customInfo.deadlineDateTime || "";
-  }
-  if (inputClosedMessage) {
-    inputClosedMessage.value = customInfo.closedMessage || "";
-  }
-
-  // Isi data Integrasi Google
-  if (inputAdminEmail) inputAdminEmail.value = customInfo.adminEmail || CONFIG.ADMIN_EMAIL || "";
-  if (inputDriveFolder) inputDriveFolder.value = customInfo.driveFolder || "Bukti_Transfer_Event";
-  if (inputGasUrl) inputGasUrl.value = customInfo.gasApiUrl || CONFIG.GAS_API_URL || "";
-  if (inputSheetUrl) inputSheetUrl.value = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
-
-  // Update Link Tombol Buka Sheet di Header Dashboard
-  const btnOpenSheet = document.getElementById('btn-open-sheet');
-  if (btnOpenSheet) {
-    btnOpenSheet.href = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "#";
-  }
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-
-    const name = inputName.value.trim();
-    const date = inputDate.value.trim();
-    const venue = inputVenue.value.trim();
-    const posterUrlText = inputPosterUrl.value.trim();
-    const bankName = (inputBankName ? inputBankName.value.trim() : "") || CONFIG.PAYMENT_INFO.BANK_NAME;
-    const accountNumber = (inputBankAcc ? inputBankAcc.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
-    const accountHolder = (inputBankHolder ? inputBankHolder.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
-    const selfPresensiEnabled = inputSelfPresensi ? inputSelfPresensi.value === "true" : true;
-    const deadlineMode = inputDeadlineMode ? inputDeadlineMode.value : "unlimited";
-    const deadlineDateTime = inputDeadlineDatetime ? inputDeadlineDatetime.value : "";
-    const closedMessage = inputClosedMessage ? inputClosedMessage.value.trim() : "";
-
-    const adminEmail = inputAdminEmail ? inputAdminEmail.value.trim() : "";
-    const driveFolder = inputDriveFolder ? inputDriveFolder.value.trim() : "";
-    const gasApiUrl = inputGasUrl ? inputGasUrl.value.trim() : "";
-    const sheetUrl = inputSheetUrl ? inputSheetUrl.value.trim() : "";
-
-    const savedPaymentInfo = {
-      bankName: bankName,
-      accountNumber: accountNumber,
-      accountHolder: accountHolder
-    };
-
-    const updatedSettings = {
-      name,
-      date,
-      venue,
-      selfPresensiEnabled,
-      paymentInfo: savedPaymentInfo,
-      deadlineMode,
-      deadlineDateTime,
-      closedMessage,
-      adminEmail,
-      driveFolder,
-      gasApiUrl,
-      sheetUrl
-    };
-
-    if (btnOpenSheet && sheetUrl) {
-      btnOpenSheet.href = sheetUrl;
-    }
-
-    const fileInput = document.getElementById('set-poster-file');
-    const btnSave = form.querySelector('button[type="submit"]');
-
-    if (fileInput && fileInput.files && fileInput.files.length > 0) {
-      const file = fileInput.files[0];
-
-      // Kompres gambar dulu, lalu upload ke Google Drive via GAS
-      // agar poster bisa diakses dari browser/HP mana pun (bukan base64 lokal)
-      if (btnSave) {
-        btnSave.disabled = true;
-        btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Mengupload Poster ke Google Drive...';
+        }
       }
 
-      compressAndSavePoster(file, function(compressedBase64) {
-        const targetGasUrl = updatedSettings.gasApiUrl || CONFIG.GAS_API_URL;
+      // Auto Reset kembali ke Mode Scanning setelah 4 detik (Hands-free Loop)
+      setTimeout(() => {
+        startKioskLoop();
+      }, 4000);
+    }
 
-        if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-          // Upload poster ke Google Drive via GAS → dapat URL publik
-          fetch(targetGasUrl, {
-            method: "POST",
-            body: JSON.stringify({
-              action: "uploadPoster",
-              fileData: compressedBase64,
-              fileName: file.name
-            })
-          })
-            .then(res => res.json())
-            .then(json => {
-              if (json.status === "success" && json.posterUrl) {
-                // Gunakan URL Drive (bisa diakses semua HP/browser)
-                updatedSettings.posterUrl = json.posterUrl;
-              } else {
-                // Fallback: simpan base64 lokal jika upload Drive gagal
-                console.warn("Upload poster ke Drive gagal, fallback ke lokal:", json.message);
-                updatedSettings.posterUrl = compressedBase64;
-              }
-              if (btnSave) {
-                btnSave.disabled = false;
-                btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
-              }
-              saveEventInfoToStorage(updatedSettings);
-            })
-            .catch(err => {
-              // Fallback: simpan base64 lokal jika koneksi gagal
-              console.error("Koneksi GAS gagal saat upload poster:", err);
+    // 8. Pengaturan Poster & Info Event + Reset Data Event + Google Integration
+    function initEventSettings() {
+      const form = document.getElementById('event-settings-form');
+      if (!form) return;
+
+      // Load Existing Custom Event Info
+      const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+      const inputName = document.getElementById('set-event-name');
+      const inputDate = document.getElementById('set-event-date');
+      const inputVenue = document.getElementById('set-event-venue');
+      const inputPosterUrl = document.getElementById('set-poster-url');
+      const inputBankName = document.getElementById('set-bank-name');
+      const inputBankAcc = document.getElementById('set-bank-acc');
+      const inputBankHolder = document.getElementById('set-bank-holder');
+      const inputSelfPresensi = document.getElementById('set-self-presensi');
+      const inputDeadlineMode = document.getElementById('set-deadline-mode');
+      const inputDeadlineDatetime = document.getElementById('set-deadline-datetime');
+      const inputClosedMessage = document.getElementById('set-closed-message');
+      const groupDeadlineDatetime = document.getElementById('group-deadline-datetime');
+
+      // Integrasi Google
+      const inputAdminEmail = document.getElementById('set-admin-email');
+      const inputDriveFolder = document.getElementById('set-drive-folder');
+      const inputGasUrl = document.getElementById('set-gas-url');
+      const inputSheetUrl = document.getElementById('set-sheet-url');
+
+      const paymentInfo = customInfo.paymentInfo || CONFIG.PAYMENT_INFO;
+
+      if (inputName) inputName.value = customInfo.name || CONFIG.EVENT_INFO.NAME;
+      if (inputDate) inputDate.value = customInfo.date || CONFIG.EVENT_INFO.DATE;
+      if (inputVenue) inputVenue.value = customInfo.venue || CONFIG.EVENT_INFO.VENUE;
+      if (inputPosterUrl) inputPosterUrl.value = customInfo.posterUrl || CONFIG.EVENT_INFO.POSTER_URL;
+      if (inputBankName) inputBankName.value = paymentInfo.bankName || CONFIG.PAYMENT_INFO.BANK_NAME;
+      if (inputBankAcc) inputBankAcc.value = paymentInfo.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
+      if (inputBankHolder) inputBankHolder.value = paymentInfo.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
+      if (inputSelfPresensi) {
+        inputSelfPresensi.value = (customInfo.selfPresensiEnabled === false || customInfo.selfPresensiEnabled === "false") ? "false" : "true";
+      }
+      if (inputDeadlineMode) {
+        inputDeadlineMode.value = customInfo.deadlineMode || "unlimited";
+        if (groupDeadlineDatetime) {
+          groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
+        }
+        inputDeadlineMode.addEventListener('change', () => {
+          if (groupDeadlineDatetime) {
+            groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
+          }
+        });
+      }
+      if (inputDeadlineDatetime) {
+        inputDeadlineDatetime.value = customInfo.deadlineDateTime || "";
+      }
+      if (inputClosedMessage) {
+        inputClosedMessage.value = customInfo.closedMessage || "";
+      }
+
+      // Isi data Integrasi Google
+      if (inputAdminEmail) inputAdminEmail.value = customInfo.adminEmail || CONFIG.ADMIN_EMAIL || "";
+      if (inputDriveFolder) inputDriveFolder.value = customInfo.driveFolder || "Bukti_Transfer_Event";
+      if (inputGasUrl) inputGasUrl.value = customInfo.gasApiUrl || CONFIG.GAS_API_URL || "";
+      if (inputSheetUrl) inputSheetUrl.value = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
+
+      // Update Link Tombol Buka Sheet di Header Dashboard
+      const btnOpenSheet = document.getElementById('btn-open-sheet');
+      if (btnOpenSheet) {
+        btnOpenSheet.href = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "#";
+      }
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+
+        const name = inputName.value.trim();
+        const date = inputDate.value.trim();
+        const venue = inputVenue.value.trim();
+        const posterUrlText = inputPosterUrl.value.trim();
+        const bankName = (inputBankName ? inputBankName.value.trim() : "") || CONFIG.PAYMENT_INFO.BANK_NAME;
+        const accountNumber = (inputBankAcc ? inputBankAcc.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
+        const accountHolder = (inputBankHolder ? inputBankHolder.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
+        const selfPresensiEnabled = inputSelfPresensi ? inputSelfPresensi.value === "true" : true;
+        const deadlineMode = inputDeadlineMode ? inputDeadlineMode.value : "unlimited";
+        const deadlineDateTime = inputDeadlineDatetime ? inputDeadlineDatetime.value : "";
+        const closedMessage = inputClosedMessage ? inputClosedMessage.value.trim() : "";
+
+        const adminEmail = inputAdminEmail ? inputAdminEmail.value.trim() : "";
+        const driveFolder = inputDriveFolder ? inputDriveFolder.value.trim() : "";
+        const gasApiUrl = inputGasUrl ? inputGasUrl.value.trim() : "";
+        const sheetUrl = inputSheetUrl ? inputSheetUrl.value.trim() : "";
+
+        const savedPaymentInfo = {
+          bankName: bankName,
+          accountNumber: accountNumber,
+          accountHolder: accountHolder
+        };
+
+        const updatedSettings = {
+          name,
+          date,
+          venue,
+          selfPresensiEnabled,
+          paymentInfo: savedPaymentInfo,
+          deadlineMode,
+          deadlineDateTime,
+          closedMessage,
+          adminEmail,
+          driveFolder,
+          gasApiUrl,
+          sheetUrl
+        };
+
+        if (btnOpenSheet && sheetUrl) {
+          btnOpenSheet.href = sheetUrl;
+        }
+
+        const fileInput = document.getElementById('set-poster-file');
+        const btnSave = form.querySelector('button[type="submit"]');
+
+        if (fileInput && fileInput.files && fileInput.files.length > 0) {
+          const file = fileInput.files[0];
+
+          // Kompres gambar dulu, lalu upload ke Google Drive via GAS
+          // agar poster bisa diakses dari browser/HP mana pun (bukan base64 lokal)
+          if (btnSave) {
+            btnSave.disabled = true;
+            btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Mengupload Poster ke Google Drive...';
+          }
+
+          compressAndSavePoster(file, function (compressedBase64) {
+            const targetGasUrl = updatedSettings.gasApiUrl || CONFIG.GAS_API_URL;
+
+            if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+              // Upload poster ke Google Drive via GAS → dapat URL publik
+              fetch(targetGasUrl, {
+                method: "POST",
+                body: JSON.stringify({
+                  action: "uploadPoster",
+                  fileData: compressedBase64,
+                  fileName: file.name
+                })
+              })
+                .then(res => res.json())
+                .then(json => {
+                  if (json.status === "success" && json.posterUrl) {
+                    // Gunakan URL Drive (bisa diakses semua HP/browser)
+                    updatedSettings.posterUrl = json.posterUrl;
+                  } else {
+                    // Fallback: simpan base64 lokal jika upload Drive gagal
+                    console.warn("Upload poster ke Drive gagal, fallback ke lokal:", json.message);
+                    updatedSettings.posterUrl = compressedBase64;
+                  }
+                  if (btnSave) {
+                    btnSave.disabled = false;
+                    btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+                  }
+                  saveEventInfoToStorage(updatedSettings);
+                })
+                .catch(err => {
+                  // Fallback: simpan base64 lokal jika koneksi gagal
+                  console.error("Koneksi GAS gagal saat upload poster:", err);
+                  updatedSettings.posterUrl = compressedBase64;
+                  if (btnSave) {
+                    btnSave.disabled = false;
+                    btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+                  }
+                  saveEventInfoToStorage(updatedSettings);
+                });
+            } else {
+              // Mode lokal / mock: simpan base64 langsung
               updatedSettings.posterUrl = compressedBase64;
               if (btnSave) {
                 btnSave.disabled = false;
                 btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
               }
               saveEventInfoToStorage(updatedSettings);
-            });
+            }
+          });
         } else {
-          // Mode lokal / mock: simpan base64 langsung
-          updatedSettings.posterUrl = compressedBase64;
-          if (btnSave) {
-            btnSave.disabled = false;
-            btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
-          }
+          updatedSettings.posterUrl = posterUrlText || CONFIG.EVENT_INFO.POSTER_URL;
           saveEventInfoToStorage(updatedSettings);
         }
       });
-    } else {
-      updatedSettings.posterUrl = posterUrlText || CONFIG.EVENT_INFO.POSTER_URL;
-      saveEventInfoToStorage(updatedSettings);
-    }
-  });
-}
-
-// Kompres gambar poster agar aman disimpan di localStorage (maks ~800KB)
-function compressAndSavePoster(file, callback) {
-  const reader = new FileReader();
-  reader.onload = function(evt) {
-    const img = new Image();
-    img.onload = function() {
-      const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 1200;
-      const MAX_HEIGHT = 1600;
-      let width = img.width;
-      let height = img.height;
-
-      // Resize proporsional jika gambar terlalu besar
-      if (width > MAX_WIDTH) {
-        height = Math.round(height * MAX_WIDTH / width);
-        width = MAX_WIDTH;
-      }
-      if (height > MAX_HEIGHT) {
-        width = Math.round(width * MAX_HEIGHT / height);
-        height = MAX_HEIGHT;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Kompres ke JPEG kualitas 0.7 agar ukuran aman di localStorage
-      const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-      callback(compressedBase64);
-    };
-    img.src = evt.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function saveEventInfoToStorage(infoObj) {
-  // 1. Simpan ke localStorage admin sebagai cache lokal (instant, tanpa loading)
-  try {
-    localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(infoObj));
-  } catch (err) {
-    alert("⚠️ Gagal menyimpan! Ukuran gambar poster terlalu besar.\n\nCoba gunakan gambar poster dengan resolusi lebih kecil, atau masukkan Link/URL gambar online pada kolom di bawahnya.");
-    console.error("localStorage save error:", err);
-    return;
-  }
-
-  // 2. Kirim setting ke GAS (cloud) agar semua browser/HP bisa membacanya
-  const targetGasUrl = infoObj.gasApiUrl || CONFIG.GAS_API_URL;
-  if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-    // Kirim tanpa posterUrl base64 (terlalu besar, hanya disimpan lokal)
-    const settingsForCloud = Object.assign({}, infoObj);
-    if (settingsForCloud.posterUrl && settingsForCloud.posterUrl.startsWith('data:')) {
-      delete settingsForCloud.posterUrl;
     }
 
-    fetch(targetGasUrl, {
-      method: "POST",
-      body: JSON.stringify({ action: "saveSettings", settings: settingsForCloud })
-    })
-      .then(res => res.json())
-      .then(json => {
-        if (json.status === "success") {
-          alert("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (GAS) — Perubahan sudah langsung tampil di Web Peserta dari browser/HP mana pun.");
-        } else {
-          alert("⚠️ Tersimpan di perangkat ini, tapi gagal sinkronisasi ke cloud:\n" + json.message + "\n\nPastikan URL GAS sudah benar di kolom Integrasi Google.");
+    // Kompres gambar poster agar aman disimpan di localStorage (maks ~800KB)
+    function compressAndSavePoster(file, callback) {
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const img = new Image();
+        img.onload = function () {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1600;
+          let width = img.width;
+          let height = img.height;
+
+          // Resize proporsional jika gambar terlalu besar
+          if (width > MAX_WIDTH) {
+            height = Math.round(height * MAX_WIDTH / width);
+            width = MAX_WIDTH;
+          }
+          if (height > MAX_HEIGHT) {
+            width = Math.round(width * MAX_HEIGHT / height);
+            height = MAX_HEIGHT;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Kompres ke JPEG kualitas 0.7 agar ukuran aman di localStorage
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          callback(compressedBase64);
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function saveEventInfoToStorage(infoObj) {
+      // 1. Simpan ke localStorage admin sebagai cache lokal (instant, tanpa loading)
+      try {
+        localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(infoObj));
+      } catch (err) {
+        alert("⚠️ Gagal menyimpan! Ukuran gambar poster terlalu besar.\n\nCoba gunakan gambar poster dengan resolusi lebih kecil, atau masukkan Link/URL gambar online pada kolom di bawahnya.");
+        console.error("localStorage save error:", err);
+        return;
+      }
+
+      // 2. Kirim setting ke GAS (cloud) agar semua browser/HP bisa membacanya
+      const targetGasUrl = infoObj.gasApiUrl || CONFIG.GAS_API_URL;
+      if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+        // Kirim tanpa posterUrl base64 (terlalu besar, hanya disimpan lokal)
+        const settingsForCloud = Object.assign({}, infoObj);
+        if (settingsForCloud.posterUrl && settingsForCloud.posterUrl.startsWith('data:')) {
+          delete settingsForCloud.posterUrl;
         }
-      })
-      .catch(err => {
-        console.error("GAS saveSettings error:", err);
-        alert("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
-      });
-  } else {
-    alert("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
-  }
-}
 
-window.resetAllEventData = function() {
-  const modal = document.getElementById('reset-confirm-modal');
-  if (modal) {
-    modal.classList.remove('d-none');
-    modal.style.display = 'flex';
-  } else {
-    if (confirm("Kosongkan seluruh data event untuk memulai event baru?")) {
-      confirmResetAllEventData();
+        fetch(targetGasUrl, {
+          method: "POST",
+          body: JSON.stringify({ action: "saveSettings", settings: settingsForCloud })
+        })
+          .then(res => res.json())
+          .then(json => {
+            if (json.status === "success") {
+              alert("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (GAS) — Perubahan sudah langsung tampil di Web Peserta dari browser/HP mana pun.");
+            } else {
+              alert("⚠️ Tersimpan di perangkat ini, tapi gagal sinkronisasi ke cloud:\n" + json.message + "\n\nPastikan URL GAS sudah benar di kolom Integrasi Google.");
+            }
+          })
+          .catch(err => {
+            console.error("GAS saveSettings error:", err);
+            alert("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
+          });
+      } else {
+        alert("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
+      }
     }
-  }
-};
 
-window.closeResetModal = function() {
-  const modal = document.getElementById('reset-confirm-modal');
-  if (modal) {
-    modal.classList.add('d-none');
-    modal.style.display = 'none';
-  }
-};
+    window.resetAllEventData = function () {
+      const modal = document.getElementById('reset-confirm-modal');
+      if (modal) {
+        modal.classList.remove('d-none');
+        modal.style.display = 'flex';
+      } else {
+        if (confirm("Kosongkan seluruh data event untuk memulai event baru?")) {
+          confirmResetAllEventData();
+        }
+      }
+    };
 
-window.confirmResetAllEventData = async function() {
-  localStorage.setItem("EVENT_REGISTRATIONS_DB", JSON.stringify([]));
-  closeResetModal();
-  loadAdminTableData();
+    window.closeResetModal = function () {
+      const modal = document.getElementById('reset-confirm-modal');
+      if (modal) {
+        modal.classList.add('d-none');
+        modal.style.display = 'none';
+      }
+    };
 
-  if (!CONFIG.USE_MOCK_DATA && CONFIG.GAS_API_URL) {
-    try {
-      await fetch(CONFIG.GAS_API_URL, {
-        method: "POST",
-        body: JSON.stringify({ action: "resetAllData" })
+    window.confirmResetAllEventData = async function () {
+      localStorage.setItem("EVENT_REGISTRATIONS_DB", JSON.stringify([]));
+      closeResetModal();
+      loadAdminTableData();
+
+      // Gunakan URL GAS dari setting admin (bukan CONFIG hardcoded)
+      const customInfoReset = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+      const gasUrlReset = customInfoReset.gasApiUrl || CONFIG.GAS_API_URL;
+      if (!CONFIG.USE_MOCK_DATA && gasUrlReset) {
+        try {
+          await fetch(gasUrlReset, {
+            method: "POST",
+            body: JSON.stringify({ action: "resetAllData" })
+          });
+        } catch (e) {
+          console.error("Gagal mereset data Google Sheet:", e);
+        }
+      }
+
+      alert("🎉 Seluruh data event berhasil dikosongkan!\n\nDatabase pendaftaran kini bersih (0 peserta) dan siap digunakan untuk event baru.");
+    };
+
+    // 9. Modal Preview & Download E-Tiket Resmi dari Portal Admin
+    window.viewAdminTicket = function (regId) {
+      const data = getLocalData();
+      const item = data.find(i => i.regId === regId || i.ticketCode === regId);
+      if (!item) return;
+
+      const modal = document.getElementById('admin-ticket-modal');
+      const content = document.getElementById('admin-ticket-modal-content');
+      if (!modal || !content) return;
+
+      const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+      const eventName = customInfo.name || CONFIG.EVENT_INFO.NAME;
+      const eventDate = customInfo.date || CONFIG.EVENT_INFO.DATE;
+      const eventVenue = customInfo.venue || CONFIG.EVENT_INFO.VENUE;
+
+      let displayTicketCode = item.ticketCode;
+      if (!displayTicketCode) {
+        displayTicketCode = generateUniqueTicketCode(eventName);
+        item.ticketCode = displayTicketCode;
+        saveLocalData(data);
+      }
+      const displayRegId = item.regId || "TP-001";
+
+      const isLunas = item.statusBayar === 'LUNAS';
+      const statusBadgeText = isLunas ? 'LUNAS' : (item.statusBayar || 'BELUM LUNAS');
+      const statusBadgeClass = isLunas ? 'lunas' : 'pending';
+      const statusIcon = isLunas ? 'ri-shield-check-fill' : 'ri-time-line';
+
+      const qrPayload = JSON.stringify({
+        ticketCode: displayTicketCode,
+        regId: displayRegId,
+        nama: item.nama,
+        noWa: item.noWa,
+        ukuranBaju: item.ukuranBaju
       });
-    } catch (e) {
-      console.error("Gagal mereset data Google Sheet:", e);
-    }
-  }
 
-  alert("🎉 Seluruh data event berhasil dikosongkan!\n\nDatabase pendaftaran kini bersih (0 peserta) dan siap digunakan untuk event baru.");
-};
+      const canvasId = "admin-qrcode-" + Math.floor(10000 + Math.random() * 90000);
+      const cardId = "admin-card-" + Math.floor(10000 + Math.random() * 90000);
 
-// 9. Modal Preview & Download E-Tiket Resmi dari Portal Admin
-window.viewAdminTicket = function(regId) {
-  const data = getLocalData();
-  const item = data.find(i => i.regId === regId || i.ticketCode === regId);
-  if (!item) return;
-
-  const modal = document.getElementById('admin-ticket-modal');
-  const content = document.getElementById('admin-ticket-modal-content');
-  if (!modal || !content) return;
-
-  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-  const eventName = customInfo.name || CONFIG.EVENT_INFO.NAME;
-  const eventDate = customInfo.date || CONFIG.EVENT_INFO.DATE;
-  const eventVenue = customInfo.venue || CONFIG.EVENT_INFO.VENUE;
-
-  let displayTicketCode = item.ticketCode;
-  if (!displayTicketCode) {
-    displayTicketCode = generateUniqueTicketCode(eventName);
-    item.ticketCode = displayTicketCode;
-    saveLocalData(data);
-  }
-  const displayRegId = item.regId || "TP-001";
-
-  const isLunas = item.statusBayar === 'LUNAS';
-  const statusBadgeText = isLunas ? 'LUNAS' : (item.statusBayar || 'BELUM LUNAS');
-  const statusBadgeClass = isLunas ? 'lunas' : 'pending';
-  const statusIcon = isLunas ? 'ri-shield-check-fill' : 'ri-time-line';
-
-  const qrPayload = JSON.stringify({
-    ticketCode: displayTicketCode,
-    regId: displayRegId,
-    nama: item.nama,
-    noWa: item.noWa,
-    ukuranBaju: item.ukuranBaju
-  });
-
-  const canvasId = "admin-qrcode-" + Math.floor(10000 + Math.random() * 90000);
-  const cardId = "admin-card-" + Math.floor(10000 + Math.random() * 90000);
-
-  content.innerHTML = `
+      content.innerHTML = `
     <div class="eticket-wrapper" style="margin:0 auto;">
       <div class="eticket-card" id="${cardId}">
         <!-- Header Banner Crimson Red -->
@@ -1096,80 +1190,80 @@ window.viewAdminTicket = function(regId) {
     </div>
   `;
 
-  modal.classList.remove('d-none');
-  modal.style.display = 'flex';
+      modal.classList.remove('d-none');
+      modal.style.display = 'flex';
 
-  setTimeout(() => {
-    const qrContainer = document.getElementById(canvasId);
-    if (qrContainer) {
-      qrContainer.innerHTML = "";
-      try {
-        if (typeof QRCode !== 'undefined') {
-          new QRCode(qrContainer, {
-            text: qrPayload,
-            width: 175,
-            height: 175,
-            colorDark: "#000000",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.H
-          });
-          // Pastikan hanya 1 QR code yang ditampilkan (sembunyikan img cadangan)
-          setTimeout(() => {
-            const canvasEl = qrContainer.querySelector('canvas');
-            const imgEl = qrContainer.querySelector('img');
-            if (canvasEl && imgEl) {
-              imgEl.style.display = 'none';
+      setTimeout(() => {
+        const qrContainer = document.getElementById(canvasId);
+        if (qrContainer) {
+          qrContainer.innerHTML = "";
+          try {
+            if (typeof QRCode !== 'undefined') {
+              new QRCode(qrContainer, {
+                text: qrPayload,
+                width: 175,
+                height: 175,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+              });
+              // Pastikan hanya 1 QR code yang ditampilkan (sembunyikan img cadangan)
+              setTimeout(() => {
+                const canvasEl = qrContainer.querySelector('canvas');
+                const imgEl = qrContainer.querySelector('img');
+                if (canvasEl && imgEl) {
+                  imgEl.style.display = 'none';
+                }
+              }, 50);
+            } else {
+              qrContainer.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=175x175&data=${encodeURIComponent(qrPayload)}" alt="QR Code" style="width:175px; height:175px;" />`;
             }
-          }, 50);
-        } else {
-          qrContainer.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=175x175&data=${encodeURIComponent(qrPayload)}" alt="QR Code" style="width:175px; height:175px;" />`;
+          } catch (e) {
+            qrContainer.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=175x175&data=${encodeURIComponent(qrPayload)}" alt="QR Code" style="width:175px; height:175px;" />`;
+          }
         }
-      } catch (e) {
-        qrContainer.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=175x175&data=${encodeURIComponent(qrPayload)}" alt="QR Code" style="width:175px; height:175px;" />`;
+      }, 100);
+    };
+
+    window.closeAdminTicketModal = function () {
+      const modal = document.getElementById('admin-ticket-modal');
+      if (modal) {
+        modal.classList.add('d-none');
+        modal.style.display = 'none';
       }
-    }
-  }, 100);
-};
+    };
 
-window.closeAdminTicketModal = function() {
-  const modal = document.getElementById('admin-ticket-modal');
-  if (modal) {
-    modal.classList.add('d-none');
-    modal.style.display = 'none';
-  }
-};
+    window.downloadFullTicketCard = function (cardId, regId) {
+      const cardEl = document.getElementById(cardId);
+      if (!cardEl) return;
 
-window.downloadFullTicketCard = function(cardId, regId) {
-  const cardEl = document.getElementById(cardId);
-  if (!cardEl) return;
+      if (typeof html2canvas !== 'undefined') {
+        html2canvas(cardEl, {
+          scale: 3,
+          useCORS: true,
+          backgroundColor: "#09090b"
+        }).then(canvas => {
+          const a = document.createElement('a');
+          a.download = `E-Tiket-${regId}.png`;
+          a.href = canvas.toDataURL("image/png");
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }).catch(err => {
+          console.error(err);
+          downloadQRCode(cardId, regId);
+        });
+      } else {
+        downloadQRCode(cardId, regId);
+      }
+    };
 
-  if (typeof html2canvas !== 'undefined') {
-    html2canvas(cardEl, {
-      scale: 3,
-      useCORS: true,
-      backgroundColor: "#09090b"
-    }).then(canvas => {
-      const a = document.createElement('a');
-      a.download = `E-Tiket-${regId}.png`;
-      a.href = canvas.toDataURL("image/png");
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }).catch(err => {
-      console.error(err);
-      downloadQRCode(cardId, regId);
-    });
-  } else {
-    downloadQRCode(cardId, regId);
-  }
-};
+    window.printTicketCard = function (cardId) {
+      const cardEl = document.getElementById(cardId);
+      if (!cardEl) return;
 
-window.printTicketCard = function(cardId) {
-  const cardEl = document.getElementById(cardId);
-  if (!cardEl) return;
-
-  const printWindow = window.open('', '_blank', 'width=600,height=800');
-  printWindow.document.write(`
+      const printWindow = window.open('', '_blank', 'width=600,height=800');
+      printWindow.document.write(`
     <!DOCTYPE html>
     <html>
     <head>
@@ -1197,29 +1291,29 @@ window.printTicketCard = function(cardId) {
     </body>
     </html>
   `);
-  printWindow.document.close();
-  printWindow.focus();
-  setTimeout(() => {
-    printWindow.print();
-  }, 500);
-};
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+      }, 500);
+    };
 
-window.downloadQRCode = function(containerId, regId) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  const qrImg = container.querySelector('img') || container.querySelector('canvas');
-  if (!qrImg) return;
+    window.downloadQRCode = function (containerId, regId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const qrImg = container.querySelector('img') || container.querySelector('canvas');
+      if (!qrImg) return;
 
-  let imgUrl = qrImg.src;
-  if (qrImg.tagName.toLowerCase() === 'canvas') {
-    imgUrl = qrImg.toDataURL("image/png");
-  }
+      let imgUrl = qrImg.src;
+      if (qrImg.tagName.toLowerCase() === 'canvas') {
+        imgUrl = qrImg.toDataURL("image/png");
+      }
 
-  const a = document.createElement('a');
-  a.href = imgUrl;
-  a.download = `E-Tiket-QR-${regId}.png`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-};
+      const a = document.createElement('a');
+      a.href = imgUrl;
+      a.download = `E-Tiket-QR-${regId}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
 
