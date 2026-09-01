@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registrasi Event & E-Tiket Barcode QR</title>
+  <meta name="description"
+    content="Aplikasi Web Registrasi Event, Upload Bukti Transfer, Cek Status, dan E-Tiket Barcode QR.">
+
+  <!-- Google Fonts & Remix Icon -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Library QR Code, Scanner & Canvas CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+
+<body>
+
+  <div class="container">
+    <!-- Header Web -->
+    <header class="site-header">
+      <div class="brand-badge"><i class="ri-sparkles-line"></i> Portal Registrasi Peserta</div>
+      <h1 class="site-title" id="site-title-heading">GRAND GATHERING EVENT 2026</h1>
+    </header>
+
+    <!-- Hero Banner Poster Event -->
+    <div class="hero-poster-card">
+      <div class="poster-img-wrapper">
+        <img id="poster-img" src="images/poster-event.jpg" alt="Poster Event" class="poster-img">
+        <div class="poster-overlay">
+          <h2 class="event-title-hero" id="event-name">GRAND GATHERING EVENT 2026</h2>
+          <div class="event-meta-grid">
+            <span class="meta-item" id="event-date"><i class="ri-calendar-event-line"></i> Sabtu, 15 Agustus 2026</span>
+            <span class="meta-item" id="event-venue"><i class="ri-map-pin-line"></i> Grand Ballroom Hotel
+              Indonesia</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-navigation">
+      <button class="tab-btn active" data-tab="panel-register">
+        <i class="ri-edit-box-line"></i> Form Pendaftaran
+      </button>
+      <button class="tab-btn" data-tab="panel-upload">
+        <i class="ri-upload-cloud-line"></i> Upload Transfer
+      </button>
+      <button class="tab-btn" data-tab="panel-status">
+        <i class="ri-search-eye-line"></i> Cek Status
+      </button>
+      <button class="tab-btn" id="tab-btn-self-presensi" data-tab="panel-self-presensi">
+        <i class="ri-qr-scan-line"></i> Presensi Mandiri
+      </button>
+    </nav>
+
+    <!-- TAB 1: FORM REGISTRASI (6 FIELD) -->
+    <section id="panel-register" class="tab-panel active">
+      <div class="glass-panel">
+        <div class="panel-header">
+          <h2 class="panel-title"><i class="ri-user-add-line" style="color: var(--primary);"></i> Form Pendaftaran
+            Peserta</h2>
+          <p class="panel-subtitle">Isi data diri lengkap di bawah ini untuk mendapatkan No. Registrasi & E-Tiket
+            Barcode QR.</p>
+        </div>
+
+        <form id="registration-form">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="reg-nama">Nama Lengkap <span class="required-star">*</span></label>
+              <input type="text" id="reg-nama" placeholder="Contoh: Budi Santoso" required>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-email">Alamat Email <span class="required-star">*</span></label>
+              <input type="email" id="reg-email" placeholder="contoh: budi@gmail.com" required>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-nowa">No. WhatsApp / HP <span class="required-star">*</span></label>
+              <input type="tel" id="reg-nowa" placeholder="Contoh: 081234567890" required>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-toko">Nama Toko / Usaha <span class="required-star">*</span></label>
+              <input type="text" id="reg-toko" placeholder="Contoh: Toko Berkah Jaya" required>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-domisili">Domisili (Kota/Kabupaten) <span class="required-star">*</span></label>
+              <input type="text" id="reg-domisili" placeholder="Contoh: Bandung" required>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-baju">Ukuran Baju Event <span class="required-star">*</span></label>
+              <select id="reg-baju" required>
+                <option value="" disabled selected>-- Pilih Ukuran Baju --</option>
+                <option value="M">Ukuran M</option>
+                <option value="L">Ukuran L</option>
+                <option value="XL">Ukuran XL</option>
+                <option value="XXL">Ukuran XXL</option>
+                <option value="3XL (XXXL)">Ukuran 3XL (XXXL)</option>
+                <option value="4XL (XXXXL)">Ukuran 4XL (Jumbo)</option>
+                <option value="5XL (XXXXXL)">Ukuran 5XL (Jumbo Super)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary btn-full">
+              <i class="ri-send-plane-fill"></i> Daftar Sekarang & Terbitkan E-Tiket
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Container Hasil E-Tiket QR / Alert Duplikasi -->
+      <div id="reg-result-container"></div>
+    </section>
+
+    <!-- TAB 2: UPLOAD BUKTI TRANSFER -->
+    <section id="panel-upload" class="tab-panel">
+      <div class="glass-panel">
+        <div class="panel-header">
+          <h2 class="panel-title"><i class="ri-wallet-3-line" style="color: var(--accent-cyan);"></i> Information
+            Rekening & Upload Struk Transfer</h2>
+          <p class="panel-subtitle">Lakukan transfer ke rekening panitia di bawah ini lalu unggah foto bukti
+            transfernya.</p>
+        </div>
+
+        <!-- Bank Info Card -->
+        <div class="bank-info-card">
+          <div class="bank-header">
+            <span class="bank-name" id="bank-name">BANK BCA</span>
+            <span class="badge badge-success"><i class="ri-checkbox-circle-line"></i> Rekening Resmi Panitia</span>
+          </div>
+          <div class="acc-number-row">
+            <span class="acc-number" id="acc-number">1234567890</span>
+            <button class="btn btn-secondary btn-copy" id="btn-copy-acc">
+              <i class="ri-file-copy-line"></i> Copy No Rek
+            </button>
+          </div>
+          <p id="acc-holder" style="color: var(--text-muted); font-size: 0.9rem;">a.n Panitia Registrasi Event 2026</p>
+        </div>
+
+        <form id="upload-form">
+          <div class="form-group">
+            <label for="upload-search-id">No. Registrasi / No. WA / Email <span class="required-star">*</span></label>
+            <input type="text" id="upload-search-id" placeholder="Masukkan REG-2026-XXXX atau No WA Anda" required>
+          </div>
+
+          <div class="form-group mt-2">
+            <label for="upload-file">Upload Foto / Berkas Struk Transfer <span class="required-star">*</span></label>
+            <input type="file" id="upload-file" accept="image/*" required>
+          </div>
+
+          <div class="mt-3">
+            <button type="submit" class="btn btn-emerald btn-full">
+              <i class="ri-upload-cloud-line"></i> Unggah Bukti Transfer
+            </button>
+          </div>
+        </form>
+
+        <div id="upload-result-container"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: CEK STATUS PENDAFTARAN -->
+    <section id="panel-status" class="tab-panel">
+      <div class="glass-panel">
+        <div class="panel-header">
+          <h2 class="panel-title"><i class="ri-search-eye-line" style="color: var(--accent-amber);"></i> Cek Status
+            Pendaftaran & E-Tiket</h2>
+          <p class="panel-subtitle">Cari status verifikasi pembayaran dan presensi berdasarkan No. Registrasi, Email,
+            atau No. WA.</p>
+        </div>
+
+        <form id="check-status-form">
+          <div class="form-group">
+            <label for="status-query">Kata Kunci Pencarian <span class="required-star">*</span></label>
+            <input type="text" id="status-query" placeholder="Ketik No. REG, Email, atau No WA..." required>
+          </div>
+
+          <div class="mt-2">
+            <button type="submit" class="btn btn-primary btn-full">
+              <i class="ri-search-line"></i> Cari Status Tiket Saya
+            </button>
+          </div>
+        </form>
+
+        <div id="status-result-container"></div>
+      </div>
+    </section>
+
+    <!-- TAB 4: PRESENSI MANDIRI (SCAN POSTER VENUE) -->
+    <section id="panel-self-presensi" class="tab-panel">
+      <div class="glass-panel text-center">
+        <div class="panel-header">
+          <h2 class="panel-title" style="justify-content: center;"><i class="ri-qr-scan-2-line"
+              style="color: var(--accent-emerald);"></i> Presensi Mandiri Hari-H Event</h2>
+          <p class="panel-subtitle">Arahkan kamera HP Anda ke Poster QR Code Venue yang dipajang Panitia di Pintu Masuk.
+          </p>
+        </div>
+
+        <div class="scanner-card">
+          <div class="form-group">
+            <label for="self-scan-reg-id">ID Registrasi / No. WA Anda <span class="required-star">*</span></label>
+            <input type="text" id="self-scan-reg-id" placeholder="Contoh: REG-2026-0001 atau 081234567890">
+          </div>
+
+          <button class="btn btn-emerald btn-full mt-2" id="btn-start-self-scanner">
+            <i class="ri-camera-lens-line"></i> Buka Kamera & Scan Poster Venue
+          </button>
+
+          <div id="self-scanner-wrapper" class="d-none mt-2">
+            <div id="self-reader"></div>
+          </div>
+        </div>
+
+        <div id="self-scan-result" class="mt-3"></div>
+      </div>
+    </section>
+
+    <!-- Footer Watermark Developer Branding -->
+    <footer class="app-watermark-footer">
+      <div class="watermark-badge">
+        <i class="ri-code-s-slash-line" style="color: var(--accent-cyan);"></i>
+        <span>Crafted & Developed by <strong>ReStore</strong></span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Scripts Application -->
+  <script src="js/config.js"></script>
+  <script src="js/app-peserta.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Admin & Presensi Panitia Event</title>
+
+  <!-- Google Fonts & Remix Icon -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Library QR Code, Scanner & Canvas CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+
+<body>
+
+  <div class="container">
+    <!-- PANEL 1: LOGIN PORTAL PANITIA -->
+    <div id="login-panel">
+      <div class="glass-panel text-center" style="max-width: 420px; margin: 60px auto;">
+        <div class="brand-badge"
+          style="background: rgba(244, 63, 94, 0.2); color: #fb7185; border-color: rgba(244, 63, 94, 0.4);">
+          <i class="ri-lock-password-line"></i> Area Khusus Panitia
+        </div>
+        <h2 class="mt-1" style="color: #fff;">LOGIN PORTAL ADMIN</h2>
+        <p class="panel-subtitle">Masukkan Username & Password Panitia untuk Mengakses Dashboard</p>
+
+        <form id="admin-login-form" class="mt-3" style="text-align: left;">
+          <div class="form-group">
+            <label for="admin-username">Username <span class="required-star">*</span></label>
+            <input type="text" id="admin-username" placeholder="Ketik Username..." required>
+          </div>
+
+          <div class="form-group mt-2">
+            <label for="admin-password">Password <span class="required-star">*</span></label>
+            <input type="password" id="admin-password" placeholder="Ketik Password..." required>
+          </div>
+
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary btn-full">
+              <i class="ri-login-box-line"></i> Masuk Ke Portal
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- PANEL 2: DASHBOARD PANITIA (PROTECTED) -->
+    <div id="admin-dashboard" class="d-none">
+
+      <!-- Top Bar Admin Header -->
+      <header class="site-header"
+        style="text-align: left; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+        <div>
+          <div class="brand-badge" id="admin-role-badge"><i class="ri-shield-user-line"></i> Dashboard Panitia Event</div>
+          <h1 class="site-title" style="font-size: 1.8rem;">REKAP DATA & PRESENSI HARI-H</h1>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          <!-- Tombol Direct Link Buka Google Sheets -->
+          <a id="btn-open-sheet" href="#" target="_blank" class="btn btn-emerald">
+            <i class="ri-file-excel-line"></i> 🟢 Buka Google Sheets Data
+          </a>
+          <button class="btn btn-secondary" onclick="adminLogout()">
+            <i class="ri-logout-box-r-line"></i> Keluar
+          </button>
+        </div>
+      </header>
+
+      <!-- Live Counter Statistics Bar -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+        <div class="glass-panel" style="padding: 16px; text-align: center;">
+          <div style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">TOTAL PESERTA</div>
+          <div id="stat-total-peserta" style="font-size: 2rem; font-weight: 800; color: var(--accent-cyan);">0</div>
+        </div>
+        <div class="glass-panel" style="padding: 16px; text-align: center;">
+          <div style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">STATUS LUNAS</div>
+          <div id="stat-total-lunas" style="font-size: 2rem; font-weight: 800; color: var(--accent-emerald);">0</div>
+        </div>
+        <div class="glass-panel" style="padding: 16px; text-align: center;">
+          <div style="color: var(--text-muted); font-size: 0.85rem; font-weight: 600;">PRESENSI HADIR</div>
+          <div id="stat-total-hadir" style="font-size: 2rem; font-weight: 800; color: var(--primary);">0</div>
+        </div>
+      </div>
+
+      <!-- Navigation Admin Tabs -->
+      <nav class="tab-navigation">
+        <button class="tab-btn admin-tab-btn active" data-tab="panel-data">
+          <i class="ri-table-line"></i> Data & Verifikasi Bayar
+        </button>
+        <button class="tab-btn admin-tab-btn" data-tab="panel-scanner">
+          <i class="ri-qr-scan-2-line"></i> Scanner Panitia
+        </button>
+        <button class="tab-btn admin-tab-btn" data-tab="panel-kios">
+          <i class="ri-tv-line"></i> Mode Scanner Mandiri
+        </button>
+        <button class="tab-btn admin-tab-btn" id="tab-btn-settings" data-tab="panel-settings">
+          <i class="ri-settings-4-line"></i> Setting Event & Reset Data
+        </button>
+      </nav>
+
+      <!-- TAB 1: DATA PESERTA & VERIFIKASI BAYAR + FORM COD -->
+      <section id="panel-data" class="admin-tab-panel active">
+        <div class="glass-panel">
+          <div class="panel-header"
+            style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h2 class="panel-title"><i class="ri-group-line" style="color: var(--accent-cyan);"></i> Daftar Peserta
+                Terdaftar</h2>
+              <p class="panel-subtitle">Verifikasi status pembayaran lunas atau tambah peserta COD / OTS di lokasi
+                event.</p>
+            </div>
+            <button class="btn btn-primary"
+              onclick="document.getElementById('ots-modal-wrapper').scrollIntoView({behavior:'smooth'})">
+              <i class="ri-user-add-fill"></i> + Tambah Peserta COD / OTS
+            </button>
+          </div>
+
+          <!-- Card Rekapitulasi Pesanan Baju per Ukuran -->
+          <div class="glass-panel"
+            style="padding: 16px; margin-bottom: 20px; background: rgba(30, 41, 59, 0.8); border: 1px dashed var(--accent-rose);">
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+              <h3 style="font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 8px;">
+                <i class="ri-t-shirt-line" style="color: var(--accent-rose);"></i> Rekapitulasi Pesanan Baju Vendor
+                (Hitung Otomatis)
+              </h3>
+              <span class="badge badge-success" id="shirt-total-pcs"
+                style="font-size: 0.85rem; padding: 6px 14px;">Total: 0 Pcs</span>
+            </div>
+            <div id="shirt-summary-grid" style="display: flex; flex-wrap: wrap; gap: 10px;">
+              <!-- Dynamic Shirt Size Counters via app-panitia.js -->
+            </div>
+          </div>
+
+          <!-- Search Filter Bar -->
+          <div class="search-filter-bar">
+            <input type="text" id="admin-search-input" placeholder="Cari Nama, No. Reg, No. WA, atau Nama Toko..."
+              onkeyup="filterAdminTable()">
+            <button class="btn btn-secondary" onclick="filterAdminTable()">
+              <i class="ri-search-line"></i> Cari
+            </button>
+          </div>
+
+          <!-- Data Table -->
+          <div class="table-responsive">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>No Reg</th>
+                  <th>Nama Peserta</th>
+                  <th>Nama Toko</th>
+                  <th>Domisili</th>
+                  <th>Ukuran Baju</th>
+                  <th>No WA</th>
+                  <th>Status Bayar</th>
+                  <th>Status Hadir</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="admin-table-body">
+                <!-- Dynamic Content via app-panitia.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- FORM TAMBAH PESERTA COD / OTS (ON-THE-SPOT) -->
+        <div id="ots-modal-wrapper" class="glass-panel mt-3">
+          <div class="panel-header">
+            <h2 class="panel-title"><i class="ri-user-follow-line" style="color: var(--accent-emerald);"></i>
+              Pendaftaran On-The-Spot (COD / Bayar di Tempat)</h2>
+            <p class="panel-subtitle">Gunakan form ini untuk mendaftarkan peserta yang baru mendaftar di lokasi event
+              saat hari-H.</p>
+          </div>
+
+          <form id="ots-form">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="ots-nama">Nama Lengkap <span class="required-star">*</span></label>
+                <input type="text" id="ots-nama" placeholder="Nama Peserta..." required>
+              </div>
+
+              <div class="form-group">
+                <label for="ots-nowa">No. WhatsApp <span class="required-star">*</span></label>
+                <input type="tel" id="ots-nowa" placeholder="No. WA Peserta..." required>
+              </div>
+
+              <div class="form-group">
+                <label for="ots-toko">Nama Toko / Usaha <span class="required-star">*</span></label>
+                <input type="text" id="ots-toko" placeholder="Nama Toko..." required>
+              </div>
+
+              <div class="form-group">
+                <label for="ots-domisili">Domisili <span class="required-star">*</span></label>
+                <input type="text" id="ots-domisili" placeholder="Kota / Kabupaten..." required>
+              </div>
+
+              <div class="form-group">
+                <label for="ots-baju">Ukuran Baju <span class="required-star">*</span></label>
+                <select id="ots-baju" required>
+                  <option value="M">Ukuran M</option>
+                  <option value="L" selected>Ukuran L</option>
+                  <option value="XL">Ukuran XL</option>
+                  <option value="XXL">Ukuran XXL</option>
+                  <option value="3XL (XXXL)">Ukuran 3XL (XXXL)</option>
+                  <option value="4XL (XXXXL)">Ukuran 4XL (Jumbo)</option>
+                  <option value="5XL (XXXXXL)">Ukuran 5XL (Jumbo Super)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="ots-email">Email (Opsional)</label>
+                <input type="email" id="ots-email" placeholder="Email Peserta...">
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <button type="submit" class="btn btn-emerald btn-full">
+                <i class="ri-check-double-line"></i> Daftarkan & Langsung Presensi HADIR (LUNAS COD)
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- TAB 2: SCANNER KAMERA PANITIA -->
+      <section id="panel-scanner" class="admin-tab-panel">
+        <div class="glass-panel text-center">
+          <div class="panel-header">
+            <h2 class="panel-title" style="justify-content: center;"><i class="ri-camera-lens-line"
+                style="color: var(--primary);"></i> Scanner Barcode QR Kamera Panitia</h2>
+            <p class="panel-subtitle">Arahkan kamera HP/Laptop panitia ke E-Tiket Barcode QR Peserta untuk presensi
+              instant.</p>
+          </div>
+
+          <div class="scanner-card">
+            <button class="btn btn-primary btn-full" id="btn-start-admin-scan">
+              <i class="ri-camera-switch-line"></i> Buka Kamera Scanner Panitia
+            </button>
+
+            <div id="admin-reader" class="mt-2"></div>
+          </div>
+
+          <!-- Result Profile Modal Popup -->
+          <div id="admin-scan-result" class="mt-3"></div>
+        </div>
+      </section>
+
+      <!-- TAB 3: MODE SCANNER MANDIRI -->
+      <section id="panel-kios" class="admin-tab-panel">
+        <div class="glass-panel text-center kiosk-mode-panel">
+          <div id="kiosk-setup">
+            <h2 style="color: var(--accent-emerald); font-size: 1.8rem;"><i class="ri-tv-2-line"></i> MODE SCANNER MANDIRI</h2>
+            <p class="panel-subtitle mt-1">Mode ini dirancang khusus untuk dipasang pada Tablet / Laptop di Pintu Masuk
+              Event. Kamera akan menyala terus-menerus dan otomatis mereset kembali setiap 4 detik (Hands-Free Loop).
+            </p>
+
+            <div class="mt-3">
+              <button class="btn btn-emerald btn-full" id="btn-start-kiosk"
+                style="max-width: 400px; font-size: 1.2rem; padding: 16px;">
+                <i class="ri-play-circle-line"></i> Mulai Mode Kios Standby
+              </button>
+            </div>
+          </div>
+
+          <div id="kiosk-active" class="d-none">
+            <div
+              style="background: rgba(15, 23, 42, 0.8); border: 2px solid var(--accent-emerald); border-radius: var(--radius-lg); padding: 20px; max-width: 500px; margin: 0 auto;">
+              <div class="brand-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">
+                <i class="ri-radar-line ri-spin"></i> KIOS KAMERA STANDBY (AUTOLOOP)
+              </div>
+              <div id="kiosk-reader" class="mt-2"></div>
+            </div>
+
+            <div id="kiosk-display" class="mt-3"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: PENGATURAN POSTER EVENT & RESET DATA -->
+      <section id="panel-settings" class="admin-tab-panel">
+        <!-- CARD 1: PENGATURAN POSTER & INFO EVENT -->
+        <div class="glass-panel">
+          <div class="panel-header">
+            <h2 class="panel-title"><i class="ri-image-edit-line" style="color: var(--accent-cyan);"></i> Pengaturan
+              Poster Banner & Informasi Event</h2>
+            <p class="panel-subtitle">Ubah poster, nama event, tanggal, dan lokasi. Perubahan akan langsung tampil di
+              Web Peserta (index.html).</p>
+          </div>
+
+          <form id="event-settings-form">
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label for="set-poster-file">Upload Poster Event Baru (File Gambar dari Laptop)</label>
+                <input type="file" id="set-poster-file" accept="image/*">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Pilih gambar dari komputer Anda
+                  untuk mengganti poster event secara instan.</p>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-poster-url">Atau Masukkan Link/URL Gambar Poster Online</label>
+                <input type="text" id="set-poster-url"
+                  placeholder="Contoh: images/poster-event.jpg atau https://link-gambar.com/poster.jpg">
+              </div>
+
+              <div class="form-group">
+                <label for="set-event-name">Nama Event / Acara <span class="required-star">*</span></label>
+                <input type="text" id="set-event-name" placeholder="Nama Event..." required>
+              </div>
+
+              <div class="form-group">
+                <label for="set-event-date">Tanggal & Jam Event <span class="required-star">*</span></label>
+                <input type="text" id="set-event-date" placeholder="Contoh: Sabtu, 15 Agustus 2026 (08:00 WIB)"
+                  required>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-event-venue">Lokasi / Venue Event <span class="required-star">*</span></label>
+                <input type="text" id="set-event-venue" placeholder="Contoh: Grand Ballroom Hotel Indonesia" required>
+              </div>
+
+              <div class="form-group">
+                <label for="set-bank-name">Nama Bank Pembayaran <span class="required-star">*</span></label>
+                <input type="text" id="set-bank-name" placeholder="Contoh: BANK BCA" required>
+              </div>
+
+              <div class="form-group">
+                <label for="set-bank-acc">Nomor Rekening Bank <span class="required-star">*</span></label>
+                <input type="text" id="set-bank-acc" placeholder="Contoh: 1234567890" required>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-bank-holder">Atas Nama (Pemilik Rekening) <span class="required-star">*</span></label>
+                <input type="text" id="set-bank-holder" placeholder="Contoh: Panitia Registrasi Event 2026" required>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-self-presensi">Status Fitur Presensi Mandiri (Scan Poster Venue di Web Peserta) <span class="required-star">*</span></label>
+                <select id="set-self-presensi">
+                  <option value="true">🟢 AKTIF (Tampilkan Menu Presensi Mandiri di Web Peserta)</option>
+                  <option value="false">🔴 NONAKTIF (Sembunyikan Menu Presensi Mandiri di Web Peserta)</option>
+                </select>
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Jika dinonaktifkan, tab Presensi Mandiri di Web Peserta akan disembunyikan sehingga peserta wajib presensi ke meja panitia/kios.</p>
+              </div>
+
+              <!-- PENGATURAN TANGGAL & BATAS WAKTU AKSES PENDAFTARAN -->
+              <div class="form-group full-width" style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 18px; margin-top: 8px;">
+                <label for="set-deadline-mode" style="color: var(--accent-amber); font-weight: 700; font-size: 1.05rem;">
+                  <i class="ri-timer-flash-line"></i> Batas Waktu & Penutupan Pendaftaran Web Peserta
+                </label>
+                <select id="set-deadline-mode">
+                  <option value="unlimited">⚪ BUKA TERUS (Tanpa Batas Waktu Penutupan)</option>
+                  <option value="datetime">⏰ TUTUP OTOMATIS BERDASARKAN TANGGAL & JAM</option>
+                  <option value="closed">🔴 TUTUP PENDAFTARAN SEKARANG (Manual Closed)</option>
+                </select>
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Atur kapan pendaftaran ditutup secara otomatis tanpa perlu mengubah kodingan.</p>
+              </div>
+
+              <div class="form-group full-width" id="group-deadline-datetime">
+                <label for="set-deadline-datetime">Pilih Tanggal & Jam Terakhir Pendaftaran (Deadline)</label>
+                <input type="datetime-local" id="set-deadline-datetime">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Form pendaftaran akan otomatis terkunci saat waktu ini terlewati.</p>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-closed-message">Pesan Pemberitahuan Saat Pendaftaran Ditutup</label>
+                <input type="text" id="set-closed-message" placeholder="Pendaftaran event telah resmi ditutup. Terima kasih atas partisipasi Anda!">
+              </div>
+
+              <!-- PENGATURAN INTEGRASI GOOGLE SHEETS, DRIVE, & NOTIFIKASI EMAIL -->
+              <div class="form-group full-width" style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 18px; margin-top: 8px;">
+                <label style="color: var(--accent-cyan); font-weight: 700; font-size: 1.05rem;">
+                  <i class="ri-google-fill"></i> Integrasi Google Sheets, Drive, & Notifikasi Email
+                </label>
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">
+                  Hubungkan aplikasi ke Google Sheets, Google Drive, dan Email Notifikasi langsung dari menu admin tanpa perlu mengubah file kodingan.
+                </p>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-admin-email">Email Tujuan Notifikasi Panitia (Gmail)</label>
+                <input type="email" id="set-admin-email" placeholder="Contoh: panitia.event2026@gmail.com">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Email panitia yang akan menerima notifikasi otomatis saat peserta mendaftar atau mengunggah bukti transfer.</p>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-drive-folder">Nama Folder Google Drive untuk Bukti Transfer</label>
+                <input type="text" id="set-drive-folder" placeholder="Contoh: Bukti_Transfer_Event atau Folder ID Google Drive">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Folder di Google Drive Anda tempat menyimpan foto struk transfer peserta secara otomatis.</p>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-gas-url">URL Web App Google Apps Script (GAS API)</label>
+                <input type="text" id="set-gas-url" placeholder="https://script.google.com/macros/s/AKfycb.../exec">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">URL Web App dari deployment Google Apps Script (Code.gs) untuk sinkronisasi live.</p>
+              </div>
+
+              <div class="form-group full-width">
+                <label for="set-sheet-url">Link / URL File Google Sheets Panitia</label>
+                <input type="text" id="set-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Link Google Sheets yang akan langsung dibuka saat Panitia mengklik tombol '🟢 Buka Google Sheets Data' di atas.</p>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <button type="submit" class="btn btn-emerald btn-full">
+                <i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- CARD 2: RESET & KOSONGKAN DATA -->
+        <div class="glass-panel mt-3" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.08);">
+          <div class="panel-header">
+            <h2 class="panel-title" style="color: var(--accent-rose);"><i class="ri-delete-bin-2-line"></i> Reset &
+              Kosongkan Seluruh Data Event</h2>
+            <p class="panel-subtitle">Gunakan fitur ini jika event telah selesai dan Anda ingin mengosongkan seluruh
+              data peserta untuk memulai event baru.</p>
+          </div>
+
+          <div class="mt-2"
+            style="background: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: var(--radius-md); font-size: 0.9rem; color: #cbd5e1;">
+            <strong style="color: var(--accent-rose);">⚠️ Peringatan Penting:</strong>
+            <p class="mt-1">Tindakan ini akan menghapus seluruh data pendaftaran peserta, status pembayaran, dan data
+              presensi. Pastikan Anda sudah mengunduh / merekap data event sebelumnya.</p>
+          </div>
+
+          <div class="mt-3">
+            <button type="button" class="btn btn-primary"
+              style="background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); width: 100%; font-size: 1.1rem; padding: 14px;"
+              onclick="resetAllEventData()">
+              <i class="ri-refresh-line"></i> KOSONGKAN SELURUH DATA PESERTA (RESET EVENT BARU)
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- MODAL KONFIRMASI RESET DATA -->
+      <div id="reset-confirm-modal" class="d-none" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 9999; align-items: center; justify-content: center; padding: 20px;">
+        <div class="glass-panel text-center" style="max-width: 460px; border-color: var(--accent-rose); background: #1e293b;">
+          <div style="font-size: 3rem; color: var(--accent-rose); margin-bottom: 10px;">
+            <i class="ri-alarm-warning-line"></i>
+          </div>
+          <h2 style="color: #fff; font-size: 1.5rem;">Kosongkan Seluruh Data Event?</h2>
+          <p class="mt-1" style="color: #cbd5e1; font-size: 0.95rem;">
+            Tindakan ini akan menghapus <strong>seluruh data peserta terdaftar, status pembayaran, dan jam presensi</strong> untuk memulai event baru dari 0.
+          </p>
+          <div class="mt-3" style="display: flex; gap: 12px; justify-content: center;">
+            <button type="button" class="btn btn-secondary" onclick="closeResetModal()">
+              <i class="ri-close-line"></i> Batal
+            </button>
+            <button type="button" class="btn btn-primary" style="background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);" onclick="confirmResetAllEventData()">
+              <i class="ri-delete-bin-line"></i> Ya, Kosongkan Data
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL PREVIEW E-TIKET RESMI PESERTA -->
+      <div id="admin-ticket-modal" class="d-none" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(8px); z-index: 9999; align-items: center; justify-content: center; padding: 20px; overflow-y: auto;">
+        <div style="max-width: 480px; width: 100%; position: relative;">
+          <button type="button" onclick="closeAdminTicketModal()" style="position: absolute; right: 0; top: -45px; background: rgba(255,255,255,0.15); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center;">
+            <i class="ri-close-line"></i>
+          </button>
+          <div id="admin-ticket-modal-content"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer Watermark Developer Branding -->
+    <footer class="app-watermark-footer">
+      <div class="watermark-badge">
+        <i class="ri-code-s-slash-line" style="color: var(--accent-cyan);"></i>
+        <span>Crafted & Developed by <strong>ReStore</strong></span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Scripts Application -->
+  <script src="js/config.js"></script>
+  <script src="js/app-panitia.js"></script>
+</body>
+
+</html>
