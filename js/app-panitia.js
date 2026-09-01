@@ -826,12 +826,42 @@ function compressAndSavePoster(file, callback) {
 }
 
 function saveEventInfoToStorage(infoObj) {
+  // 1. Simpan ke localStorage admin sebagai cache lokal (instant, tanpa loading)
   try {
     localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(infoObj));
-    alert("🎉 Poster & Informasi Event berhasil diperbarui!\n\nPerubahan ini langsung tayang secara instan di Web Peserta (index.html).");
   } catch (err) {
     alert("⚠️ Gagal menyimpan! Ukuran gambar poster terlalu besar.\n\nCoba gunakan gambar poster dengan resolusi lebih kecil, atau masukkan Link/URL gambar online pada kolom di bawahnya.");
     console.error("localStorage save error:", err);
+    return;
+  }
+
+  // 2. Kirim setting ke GAS (cloud) agar semua browser/HP bisa membacanya
+  const targetGasUrl = infoObj.gasApiUrl || CONFIG.GAS_API_URL;
+  if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+    // Kirim tanpa posterUrl base64 (terlalu besar, hanya disimpan lokal)
+    const settingsForCloud = Object.assign({}, infoObj);
+    if (settingsForCloud.posterUrl && settingsForCloud.posterUrl.startsWith('data:')) {
+      delete settingsForCloud.posterUrl;
+    }
+
+    fetch(targetGasUrl, {
+      method: "POST",
+      body: JSON.stringify({ action: "saveSettings", settings: settingsForCloud })
+    })
+      .then(res => res.json())
+      .then(json => {
+        if (json.status === "success") {
+          alert("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (GAS) — Perubahan sudah langsung tampil di Web Peserta dari browser/HP mana pun.");
+        } else {
+          alert("⚠️ Tersimpan di perangkat ini, tapi gagal sinkronisasi ke cloud:\n" + json.message + "\n\nPastikan URL GAS sudah benar di kolom Integrasi Google.");
+        }
+      })
+      .catch(err => {
+        console.error("GAS saveSettings error:", err);
+        alert("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
+      });
+  } else {
+    alert("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
   }
 }
 

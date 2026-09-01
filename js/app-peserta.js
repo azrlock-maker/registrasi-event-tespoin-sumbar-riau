@@ -64,7 +64,41 @@ function isRegistrationClosed(customInfo) {
 }
 
 // 1. Inisialisasi Info Event dari Config / Custom Admin Settings
+// Urutan prioritas: GAS Cloud > localStorage cache > CONFIG default
 function initEventDetails() {
+  // Langkah 1: Tampilkan dari localStorage/CONFIG dulu (instant, tidak ada loading)
+  applyEventDetailsToUI();
+
+  // Langkah 2: Fetch setting terbaru dari GAS cloud (agar sinkron dengan setting admin)
+  const customInfoLocal = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const targetGasUrl = customInfoLocal.gasApiUrl || CONFIG.GAS_API_URL;
+
+  if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+    fetch(`${targetGasUrl}?action=getSettings`)
+      .then(res => res.json())
+      .then(json => {
+        if (json.status === "success" && json.settings) {
+          // Merge setting cloud dengan localStorage:
+          // Pertahankan posterUrl base64 dari localStorage jika cloud tidak punya (poster upload file)
+          const cloudSettings = json.settings;
+          if (!cloudSettings.posterUrl && customInfoLocal.posterUrl) {
+            cloudSettings.posterUrl = customInfoLocal.posterUrl;
+          }
+          // Update localStorage dengan setting terbaru dari cloud
+          localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloudSettings));
+          // Terapkan ke UI
+          applyEventDetailsToUI();
+        }
+      })
+      .catch(err => {
+        // GAS tidak bisa diakses (offline / URL salah) → tetap pakai cache lokal / CONFIG
+        console.warn("Tidak bisa fetch setting dari GAS (fallback ke lokal):", err);
+      });
+  }
+}
+
+// Fungsi internal: Terapkan setting event ke seluruh elemen UI
+function applyEventDetailsToUI() {
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
   const posterUrl = customInfo.posterUrl || CONFIG.EVENT_INFO.POSTER_URL;
   const name = customInfo.name || CONFIG.EVENT_INFO.NAME;
@@ -175,10 +209,10 @@ function initEventDetails() {
   }
 }
 
-// Sinkronisasi Real-time saat Admin mengubah setting di tab/jendela lain
+// Sinkronisasi Real-time saat Admin mengubah setting di tab/jendela lain (same browser)
 window.addEventListener('storage', (e) => {
   if (e.key === 'CUSTOM_EVENT_INFO') {
-    initEventDetails();
+    applyEventDetailsToUI();
   }
 });
 
