@@ -42,6 +42,11 @@ function doGet(e) {
     return handleGetAllData();
   }
 
+  // ✅ Endpoint: Ambil Setting Event dari PropertiesService (diakses oleh semua browser/HP)
+  if (action === "getSettings") {
+    return handleGetSettings();
+  }
+
   return responseJSON({ status: "success", message: "Google Apps Script Backend API Active!" });
 }
 
@@ -68,6 +73,11 @@ function doPost(e) {
 
     if (action === "resetAllData") {
       return handleResetAllData();
+    }
+
+    // ✅ Endpoint: Simpan Setting Event ke PropertiesService (dikirim dari admin.html)
+    if (action === "saveSettings") {
+      return handleSaveSettings(postData.settings);
     }
 
     return responseJSON({ status: "error", message: "Action tidak dikenal." });
@@ -301,6 +311,43 @@ function handleResetAllData() {
     status: "success",
     message: "Seluruh baris data peserta di Google Sheet berhasil dikosongkan."
   });
+}
+
+// ✅ 7. Simpan Setting Event ke Google Apps Script PropertiesService
+// Setting tersimpan di cloud Google, bisa dibaca dari browser/HP mana saja.
+function handleSaveSettings(settings) {
+  try {
+    if (!settings || typeof settings !== 'object') {
+      return responseJSON({ status: "error", message: "Data settings tidak valid." });
+    }
+    // Hapus posterUrl dari cloud jika berupa base64 (terlalu besar untuk PropertiesService)
+    // Poster base64 tetap disimpan di localStorage admin saja
+    const settingsToSave = Object.assign({}, settings);
+    if (settingsToSave.posterUrl && settingsToSave.posterUrl.startsWith('data:')) {
+      delete settingsToSave.posterUrl;
+    }
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('CUSTOM_EVENT_INFO', JSON.stringify(settingsToSave));
+    return responseJSON({ status: "success", message: "Setting berhasil disimpan ke cloud." });
+  } catch (err) {
+    return responseJSON({ status: "error", message: "Gagal menyimpan setting: " + err.toString() });
+  }
+}
+
+// ✅ 8. Ambil Setting Event dari Google Apps Script PropertiesService
+// Dipanggil oleh web peserta (index.html) saat pertama kali dibuka dari browser/HP mana pun.
+function handleGetSettings() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const raw = props.getProperty('CUSTOM_EVENT_INFO');
+    if (!raw) {
+      return responseJSON({ status: "success", settings: null, message: "Belum ada setting tersimpan di cloud." });
+    }
+    const settings = JSON.parse(raw);
+    return responseJSON({ status: "success", settings: settings });
+  } catch (err) {
+    return responseJSON({ status: "error", message: "Gagal membaca setting: " + err.toString() });
+  }
 }
 
 // Helper Get / Auto Create Google Sheet Header
