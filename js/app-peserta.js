@@ -74,25 +74,34 @@ function initEventDetails() {
   const targetGasUrl = customInfoLocal.gasApiUrl || CONFIG.GAS_API_URL;
 
   if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-    fetch(`${targetGasUrl}?action=getSettings`)
-      .then(res => res.json())
-      .then(json => {
-        if (json.status === "success" && json.settings) {
-          // Merge setting cloud dengan localStorage:
-          // Pertahankan posterUrl base64 dari localStorage jika cloud tidak punya (poster upload file)
+    // Cache buster (?t=...) agar GAS tidak mengembalikan respons lama yang ter-cache
+    const cacheBuster = Date.now();
+    fetch(`${targetGasUrl}?action=getSettings&t=${cacheBuster}`, {
+      method: 'GET',
+      redirect: 'follow'  // GAS selalu redirect sebelum merespons — wajib follow
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text(); // Baca sebagai teks dulu (lebih aman dari GAS redirect)
+      })
+      .then(text => {
+        const json = JSON.parse(text);
+        console.log('[GAS getSettings]', json);
+        if (json.status === 'success' && json.settings) {
           const cloudSettings = json.settings;
+          // Pertahankan posterUrl base64 dari localStorage jika cloud tidak punya
           if (!cloudSettings.posterUrl && customInfoLocal.posterUrl) {
             cloudSettings.posterUrl = customInfoLocal.posterUrl;
           }
-          // Update localStorage dengan setting terbaru dari cloud
           localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloudSettings));
-          // Terapkan ke UI
           applyEventDetailsToUI();
+        } else {
+          console.warn('[GAS getSettings] Tidak ada setting di cloud atau status error:', json);
         }
       })
       .catch(err => {
         // GAS tidak bisa diakses (offline / URL salah) → tetap pakai cache lokal / CONFIG
-        console.warn("Tidak bisa fetch setting dari GAS (fallback ke lokal):", err);
+        console.warn('[GAS getSettings] Fetch gagal, fallback ke lokal:', err);
       });
   }
 }

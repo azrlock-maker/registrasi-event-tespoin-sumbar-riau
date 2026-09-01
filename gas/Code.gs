@@ -80,6 +80,11 @@ function doPost(e) {
       return handleSaveSettings(postData.settings);
     }
 
+    // ✅ Endpoint: Upload Poster Event ke Google Drive & Return URL Publik
+    if (action === "uploadPoster") {
+      return handleUploadPoster(postData.fileData, postData.fileName);
+    }
+
     return responseJSON({ status: "error", message: "Action tidak dikenal." });
   } catch (err) {
     return responseJSON({ status: "error", message: err.toString() });
@@ -347,6 +352,42 @@ function handleGetSettings() {
     return responseJSON({ status: "success", settings: settings });
   } catch (err) {
     return responseJSON({ status: "error", message: "Gagal membaca setting: " + err.toString() });
+  }
+}
+
+// ✅ 9. Upload Poster Event ke Google Drive & Return URL Publik yang Bisa Diakses Semua HP/Browser
+function handleUploadPoster(base64Data, fileName) {
+  try {
+    if (!base64Data || !fileName) {
+      return responseJSON({ status: "error", message: "Data gambar poster tidak valid." });
+    }
+
+    // Simpan poster di folder khusus di Google Drive
+    const folder = getOrCreateDriveFolder("Poster_Event");
+    const safeName = "Poster_Event_" + fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    // Hapus file poster lama dengan nama yang sama (agar tidak menumpuk)
+    const oldFiles = folder.getFilesByName(safeName);
+    while (oldFiles.hasNext()) {
+      oldFiles.next().setTrashed(true);
+    }
+
+    // Buat file baru di Drive dari data base64
+    const contentType = base64Data.substring(base64Data.indexOf(":") + 1, base64Data.indexOf(";"));
+    const bytes = Utilities.base64Decode(base64Data.split(",")[1]);
+    const blob = Utilities.newBlob(bytes, contentType, safeName);
+    const file = folder.createFile(blob);
+
+    // Set akses publik agar bisa ditampilkan di <img> tag semua browser
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    // Gunakan format URL direct image (bisa langsung dipakai sebagai src gambar)
+    const fileId = file.getId();
+    const directUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
+
+    return responseJSON({ status: "success", posterUrl: directUrl, fileId: fileId });
+  } catch (err) {
+    return responseJSON({ status: "error", message: "Gagal upload poster ke Drive: " + err.toString() });
   }
 }
 

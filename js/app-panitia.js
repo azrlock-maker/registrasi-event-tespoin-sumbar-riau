@@ -775,12 +775,66 @@ function initEventSettings() {
     }
 
     const fileInput = document.getElementById('set-poster-file');
-    
+    const btnSave = form.querySelector('button[type="submit"]');
+
     if (fileInput && fileInput.files && fileInput.files.length > 0) {
       const file = fileInput.files[0];
+
+      // Kompres gambar dulu, lalu upload ke Google Drive via GAS
+      // agar poster bisa diakses dari browser/HP mana pun (bukan base64 lokal)
+      if (btnSave) {
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Mengupload Poster ke Google Drive...';
+      }
+
       compressAndSavePoster(file, function(compressedBase64) {
-        updatedSettings.posterUrl = compressedBase64;
-        saveEventInfoToStorage(updatedSettings);
+        const targetGasUrl = updatedSettings.gasApiUrl || CONFIG.GAS_API_URL;
+
+        if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+          // Upload poster ke Google Drive via GAS → dapat URL publik
+          fetch(targetGasUrl, {
+            method: "POST",
+            body: JSON.stringify({
+              action: "uploadPoster",
+              fileData: compressedBase64,
+              fileName: file.name
+            })
+          })
+            .then(res => res.json())
+            .then(json => {
+              if (json.status === "success" && json.posterUrl) {
+                // Gunakan URL Drive (bisa diakses semua HP/browser)
+                updatedSettings.posterUrl = json.posterUrl;
+              } else {
+                // Fallback: simpan base64 lokal jika upload Drive gagal
+                console.warn("Upload poster ke Drive gagal, fallback ke lokal:", json.message);
+                updatedSettings.posterUrl = compressedBase64;
+              }
+              if (btnSave) {
+                btnSave.disabled = false;
+                btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+              }
+              saveEventInfoToStorage(updatedSettings);
+            })
+            .catch(err => {
+              // Fallback: simpan base64 lokal jika koneksi gagal
+              console.error("Koneksi GAS gagal saat upload poster:", err);
+              updatedSettings.posterUrl = compressedBase64;
+              if (btnSave) {
+                btnSave.disabled = false;
+                btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+              }
+              saveEventInfoToStorage(updatedSettings);
+            });
+        } else {
+          // Mode lokal / mock: simpan base64 langsung
+          updatedSettings.posterUrl = compressedBase64;
+          if (btnSave) {
+            btnSave.disabled = false;
+            btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+          }
+          saveEventInfoToStorage(updatedSettings);
+        }
       });
     } else {
       updatedSettings.posterUrl = posterUrlText || CONFIG.EVENT_INFO.POSTER_URL;
