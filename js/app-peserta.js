@@ -50,13 +50,32 @@ function saveLocalData(dataArray) {
   localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(dataArray));
 }
 
+// Helper Parse Tanggal Deadline Universal (Kompatibel dengan semua browser: Chrome, Safari iOS, Edge, Firefox)
+function parseDeadlineDate(dateStr) {
+  if (!dateStr) return null;
+  let s = String(dateStr).trim();
+  if (s.includes('T')) {
+    const parts = s.split('T');
+    const timeParts = parts[1].split(':');
+    if (timeParts.length === 2) {
+      s = parts[0] + 'T' + parts[1] + ':00';
+    }
+  }
+  let d = new Date(s);
+  if (isNaN(d.getTime())) {
+    d = new Date(s.replace(/-/g, '/').replace('T', ' '));
+  }
+  return isNaN(d.getTime()) ? null : d.getTime();
+}
+
 // Helper Cek Status Penutupan Pendaftaran Berdasarkan Waktu / Setting Admin
 function isRegistrationClosed(customInfo) {
+  if (!customInfo) return false;
   const mode = customInfo.deadlineMode || "unlimited";
   if (mode === "closed") return true;
   if (mode === "datetime" && customInfo.deadlineDateTime) {
-    const deadlineMs = new Date(customInfo.deadlineDateTime).getTime();
-    if (!isNaN(deadlineMs) && Date.now() > deadlineMs) {
+    const deadlineMs = parseDeadlineDate(customInfo.deadlineDateTime);
+    if (deadlineMs !== null && Date.now() > deadlineMs) {
       return true;
     }
   }
@@ -414,6 +433,9 @@ function initRegistrationForm() {
           saveLocalData(currentLocal);
           renderTicketSuccess(savedData, 'reg-result-container');
           form.reset();
+        } else if (resJson.status === "closed") {
+          alert("Pemberitahuan: " + (resJson.message || "Pendaftaran event saat ini telah resmi ditutup."));
+          initEventDetails();
         } else {
           alert("Gagal melakukan pendaftaran: " + resJson.message);
         }

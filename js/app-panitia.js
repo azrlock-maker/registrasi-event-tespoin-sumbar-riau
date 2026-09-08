@@ -914,11 +914,55 @@ async function processAdminScanResult(qrText) {
         inputDeadlineMode.addEventListener('change', () => {
           if (groupDeadlineDatetime) {
             groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
+            updateDeadlinePreview();
           }
         });
       }
+
+      function updateDeadlinePreview() {
+        const previewEl = document.getElementById('deadline-status-preview');
+        if (!previewEl) return;
+        const val = inputDeadlineDatetime ? inputDeadlineDatetime.value : "";
+        if (!val) {
+          previewEl.innerHTML = `<span style="color:var(--text-muted); font-size:0.8rem;"><i class="ri-information-line"></i> Belum ada batas tanggal yang dipilih.</span>`;
+          return;
+        }
+        let s = val;
+        if (s.includes('T')) {
+          const parts = s.split('T');
+          const timeParts = parts[1].split(':');
+          if (timeParts.length === 2) s = parts[0] + 'T' + parts[1] + ':00';
+        }
+        let deadlineMs = new Date(s).getTime();
+        if (isNaN(deadlineMs)) {
+          deadlineMs = new Date(s.replace(/-/g, '/').replace('T', ' ')).getTime();
+        }
+        const now = Date.now();
+        if (!isNaN(deadlineMs)) {
+          const isPassed = now > deadlineMs;
+          if (isPassed) {
+            previewEl.innerHTML = `
+              <div class="badge badge-danger" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; font-size:0.82rem; margin-top:4px;">
+                <i class="ri-forbid-line"></i> <strong>SUDAH LEWAT:</strong> Waktu ini sudah lewat dibanding jam sekarang. Form web peserta akan <strong>DITUTUP</strong>.
+              </div>
+            `;
+          } else {
+            const diffMin = Math.round((deadlineMs - now) / 60000);
+            const diffHours = (diffMin / 60).toFixed(1);
+            previewEl.innerHTML = `
+              <div class="badge badge-success" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; font-size:0.82rem; margin-top:4px;">
+                <i class="ri-time-line"></i> <strong>MASIH AKTIF:</strong> Waktu ini masih di masa depan (~${diffHours} jam lagi). Form web peserta akan <strong>TETAP BUKA</strong> hingga waktu tersebut.
+              </div>
+            `;
+          }
+        }
+      }
+
       if (inputDeadlineDatetime) {
         inputDeadlineDatetime.value = customInfo.deadlineDateTime || "";
+        inputDeadlineDatetime.addEventListener('input', updateDeadlinePreview);
+        inputDeadlineDatetime.addEventListener('change', updateDeadlinePreview);
+        updateDeadlinePreview();
       }
       if (inputClosedMessage) {
         inputClosedMessage.value = customInfo.closedMessage || "";
@@ -966,7 +1010,10 @@ async function processAdminScanResult(qrText) {
                   groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
                 }
               }
-              if (inputDeadlineDatetime) inputDeadlineDatetime.value = cloud.deadlineDateTime || "";
+              if (inputDeadlineDatetime) {
+                inputDeadlineDatetime.value = cloud.deadlineDateTime || "";
+                updateDeadlinePreview();
+              }
               if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || "";
               if (inputAdminEmail) inputAdminEmail.value = cloud.adminEmail || "";
               if (inputDriveFolder) inputDriveFolder.value = cloud.driveFolder || "Bukti_Transfer_Event";
@@ -1025,15 +1072,18 @@ async function processAdminScanResult(qrText) {
 
         const fileInput = document.getElementById('set-poster-file');
         const btnSave = form.querySelector('button[type="submit"]');
+        const originalBtnText = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+
+        if (btnSave) {
+          btnSave.disabled = true;
+        }
 
         if (fileInput && fileInput.files && fileInput.files.length > 0) {
           const file = fileInput.files[0];
 
           // Kompres gambar dulu, lalu upload ke Google Drive via GAS
-          // agar poster bisa diakses dari browser/HP mana pun (bukan base64 lokal)
           if (btnSave) {
-            btnSave.disabled = true;
-            btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Mengupload Poster ke Google Drive...';
+            btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Mengupload Poster ke Google Drive (1/2)...';
           }
 
           compressAndSavePoster(file, function (compressedBase64) {
@@ -1052,42 +1102,37 @@ async function processAdminScanResult(qrText) {
                 .then(res => res.json())
                 .then(json => {
                   if (json.status === "success" && json.posterUrl) {
-                    // Gunakan URL Drive (bisa diakses semua HP/browser)
                     updatedSettings.posterUrl = json.posterUrl;
+                    if (inputPosterUrl) inputPosterUrl.value = json.posterUrl;
                   } else {
-                    // Fallback: simpan base64 lokal jika upload Drive gagal
                     console.warn("Upload poster ke Drive gagal, fallback ke lokal:", json.message);
                     updatedSettings.posterUrl = compressedBase64;
                   }
                   if (btnSave) {
-                    btnSave.disabled = false;
-                    btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+                    btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Menyimpan Pengaturan ke Cloud Google (2/2)...';
                   }
-                  saveEventInfoToStorage(updatedSettings);
+                  saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
                 })
                 .catch(err => {
-                  // Fallback: simpan base64 lokal jika koneksi gagal
                   console.error("Koneksi GAS gagal saat upload poster:", err);
                   updatedSettings.posterUrl = compressedBase64;
                   if (btnSave) {
-                    btnSave.disabled = false;
-                    btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
+                    btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Menyimpan Pengaturan ke Cloud Google...';
                   }
-                  saveEventInfoToStorage(updatedSettings);
+                  saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
                 });
             } else {
               // Mode lokal / mock: simpan base64 langsung
               updatedSettings.posterUrl = compressedBase64;
-              if (btnSave) {
-                btnSave.disabled = false;
-                btnSave.innerHTML = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
-              }
-              saveEventInfoToStorage(updatedSettings);
+              saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
             }
           });
         } else {
+          if (btnSave) {
+            btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Menyimpan ke Cloud Google...';
+          }
           updatedSettings.posterUrl = posterUrlText || CONFIG.EVENT_INFO.POSTER_URL;
-          saveEventInfoToStorage(updatedSettings);
+          saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
         }
       });
     }
@@ -1128,11 +1173,15 @@ async function processAdminScanResult(qrText) {
       reader.readAsDataURL(file);
     }
 
-    function saveEventInfoToStorage(infoObj) {
-      // 1. Simpan ke localStorage admin sebagai cache lokal (instant, tanpa loading)
+    function saveEventInfoToStorage(infoObj, btnSave, originalBtnText) {
+      // 1. Simpan ke localStorage admin sebagai cache lokal (instant, 0 detik)
       try {
         localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(infoObj));
       } catch (err) {
+        if (btnSave) {
+          btnSave.disabled = false;
+          btnSave.innerHTML = originalBtnText || '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event';
+        }
         alert("⚠️ Gagal menyimpan! Ukuran gambar poster terlalu besar.\n\nCoba gunakan gambar poster dengan resolusi lebih kecil, atau masukkan Link/URL gambar online pada kolom di bawahnya.");
         console.error("localStorage save error:", err);
         return;
@@ -1154,16 +1203,26 @@ async function processAdminScanResult(qrText) {
           .then(res => res.json())
           .then(json => {
             if (json.status === "success") {
-              alert("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (GAS) — Perubahan sudah langsung tampil di Web Peserta dari browser/HP mana pun.");
+              alert("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (Google) — Perubahan sudah aktif dan dapat diakses dari browser/HP mana pun.");
             } else {
               alert("⚠️ Tersimpan di perangkat ini, tapi gagal sinkronisasi ke cloud:\n" + json.message + "\n\nPastikan URL GAS sudah benar di kolom Integrasi Google.");
             }
           })
           .catch(err => {
             console.error("GAS saveSettings error:", err);
-            alert("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
+            alert("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud Google.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
+          })
+          .finally(() => {
+            if (btnSave) {
+              btnSave.disabled = false;
+              btnSave.innerHTML = originalBtnText || '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event';
+            }
           });
       } else {
+        if (btnSave) {
+          btnSave.disabled = false;
+          btnSave.innerHTML = originalBtnText || '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event';
+        }
         alert("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
       }
     }

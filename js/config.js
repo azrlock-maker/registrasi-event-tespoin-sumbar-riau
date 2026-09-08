@@ -34,16 +34,16 @@ const CONFIG = {
   PAYMENT_INFO: {
     BANK_NAME: "BANK BCA",
     ACCOUNT_NUMBER: "1234567890",
-    ACCOUNT_HOLDER: "Panitia Registrasi Event 2026",
+    ACCOUNT_HOLDER: "TESPOIN SUMBAR RIAU",
     PAYMENT_INSTRUCTIONS: "Silakan melakukan transfer sesuai nominal pendaftaran, lalu unggah struk bukti transfer pada Tab 'Upload Bukti Transfer'."
   },
 
   // Banner Poster Event & Informasi Event di Portal Peserta (index.html)
   EVENT_INFO: {
-    NAME: "GRAND GATHERING & EXPO EVENT 2026",
+    NAME: "SILATURAHMI AKBAR TESPOIN SUMBAR RIAU",
     DATE: "Sabtu, 15 Agustus 2026",
     TIME: "08:00 - 17:00 WIB",
     VENUE: "Grand Ballroom Hotel Indonesia, Jakarta",
-    POSTER_URL: "images/poster-event.jpg"
+    POSTER_URL: "https://drive.google.com/thumbnail?id=1JQpNNh_zw5yYAL-j1t86tx2WtPC_Bvkq&sz=w1200-h1600"
   }
 };

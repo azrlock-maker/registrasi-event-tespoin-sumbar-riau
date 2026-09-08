@@ -24,23 +24,43 @@
     <!-- Header Web -->
     <header class="site-header">
       <div class="brand-badge"><i class="ri-sparkles-line"></i> Portal Registrasi Peserta</div>
-      <h1 class="site-title" id="site-title-heading">GRAND GATHERING EVENT 2026</h1>
+      <h1 class="site-title" id="site-title-heading">SILATURAHMI AKBAR TESPOIN SUMBAR RIAU</h1>
     </header>
 
     <!-- Hero Banner Poster Event -->
     <div class="hero-poster-card">
       <div class="poster-img-wrapper">
-        <img id="poster-img" src="images/poster-event.jpg" alt="Poster Event" class="poster-img">
+        <img id="poster-img" src="https://drive.google.com/thumbnail?id=1JQpNNh_zw5yYAL-j1t86tx2WtPC_Bvkq&sz=w1200-h1600" alt="Poster Event" class="poster-img">
         <div class="poster-overlay">
-          <h2 class="event-title-hero" id="event-name">GRAND GATHERING EVENT 2026</h2>
+          <h2 class="event-title-hero" id="event-name">SILATURAHMI AKBAR TESPOIN SUMBAR RIAU</h2>
           <div class="event-meta-grid">
             <span class="meta-item" id="event-date"><i class="ri-calendar-event-line"></i> Sabtu, 15 Agustus 2026</span>
-            <span class="meta-item" id="event-venue"><i class="ri-map-pin-line"></i> Grand Ballroom Hotel
-              Indonesia</span>
+            <span class="meta-item" id="event-venue"><i class="ri-map-pin-line"></i> Grand Ballroom Hotel Indonesia</span>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Instant Pre-render Script: Mencegah kedipan gambar/judul lama saat refresh -->
+    <script>
+      (function() {
+        try {
+          var saved = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+          var img = document.getElementById('poster-img');
+          var title = document.getElementById('site-title-heading');
+          var hero = document.getElementById('event-name');
+          var date = document.getElementById('event-date');
+          var venue = document.getElementById('event-venue');
+          if (saved.posterUrl && img) img.src = saved.posterUrl;
+          if (saved.name) {
+            if (title) title.textContent = saved.name;
+            if (hero) hero.textContent = saved.name;
+          }
+          if (saved.date && date) date.innerHTML = '<i class="ri-calendar-event-line"></i> ' + saved.date;
+          if (saved.venue && venue) venue.innerHTML = '<i class="ri-map-pin-line"></i> ' + saved.venue;
+        } catch(e) {}
+      })();
+    </script>
 
     <!-- Navigation Tabs -->
     <nav class="tab-navigation">

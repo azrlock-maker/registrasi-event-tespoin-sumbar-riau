@@ -126,6 +126,42 @@ function handleCheckDuplicate(email, noWa) {
 
 // 1. Registrasi Peserta Baru
 function handleRegister(data, customEmail) {
+  // Cek Batas Waktu & Penutupan Pendaftaran dari Setting Cloud
+  const props = PropertiesService.getScriptProperties();
+  const rawSettings = props.getProperty('CUSTOM_EVENT_INFO');
+  if (rawSettings) {
+    try {
+      const settings = JSON.parse(rawSettings);
+      const mode = settings.deadlineMode || "unlimited";
+      if (mode === "closed") {
+        return responseJSON({
+          status: "closed",
+          message: settings.closedMessage || "Mohon maaf, pendaftaran event saat ini telah resmi ditutup."
+        });
+      }
+      if (mode === "datetime" && settings.deadlineDateTime) {
+        let s = String(settings.deadlineDateTime).trim();
+        if (s.includes('T')) {
+          const parts = s.split('T');
+          const timeParts = parts[1].split(':');
+          if (timeParts.length === 2) s = parts[0] + 'T' + parts[1] + ':00';
+        }
+        let deadlineMs = new Date(s).getTime();
+        if (isNaN(deadlineMs)) {
+          deadlineMs = new Date(s.replace(/-/g, '/').replace('T', ' ')).getTime();
+        }
+        if (!isNaN(deadlineMs) && Date.now() > deadlineMs) {
+          return responseJSON({
+            status: "closed",
+            message: settings.closedMessage || "Mohon maaf, batas waktu pendaftaran event telah berakhir."
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Cek deadline backend error:", e);
+    }
+  }
+
   const sheet = getOrCreateSheet();
   const rows = sheet.getDataRange().getValues();
   const normWa = normalizePhone(data.noWa);
