@@ -280,7 +280,8 @@ function isPhoneMatch(phoneA, phoneB) {
   const normA = normalizePhone(phoneA);
   const normB = normalizePhone(phoneB);
   if (!normA || !normB) return false;
-  return normA === normB || normA.includes(normB) || normB.includes(normA);
+  // Pastikan pencocokan nomor telepon akurat dan tidak salah sasaran ke nomor lain
+  return normA === normB;
 }
 
 function findParticipantByQuery(dataArray, query) {
@@ -289,19 +290,16 @@ function findParticipantByQuery(dataArray, query) {
   const qLower = qClean.toLowerCase();
   
   return dataArray.find(item => {
-    // 1. Cek No. Peserta / ID Registrasi (misal: TP-001)
-    if (item.regId && item.regId.toLowerCase() === qLower) return true;
+    // 1. Cek No. Peserta / ID Registrasi (misal: TSR-001)
+    if (item.regId && item.regId.toLowerCase().trim() === qLower) return true;
     // 2. Cek Kode Tiket Resmi (misal: CGC26-UNQC9Y)
-    if (item.ticketCode && item.ticketCode.toLowerCase() === qLower) return true;
+    if (item.ticketCode && item.ticketCode.toLowerCase().trim() === qLower) return true;
     // 3. Cek Alamat Email
-    if (item.email && item.email.toLowerCase() === qLower) return true;
-    // 4. Cek Nama Lengkap atau Nama Panggilan / Parsial
-    if (item.nama && (item.nama.toLowerCase() === qLower || item.nama.toLowerCase().includes(qLower))) return true;
-    // 5. Cek Nomor WhatsApp (fleksibel: 08xx, 628xx, 8xx, +62, spasi, dash)
+    if (item.email && item.email.toLowerCase().trim() === qLower) return true;
+    // 4. Cek Nomor WhatsApp (fleksibel: 08xx, 628xx, 8xx, +62, spasi, dash)
     if (item.noWa && isPhoneMatch(item.noWa, qClean)) return true;
-    // 6. Cek Nama Toko / Domisili
-    if (item.namaToko && item.namaToko.toLowerCase().includes(qLower)) return true;
-    if (item.domisili && item.domisili.toLowerCase().includes(qLower)) return true;
+    // 5. Cek Nama Lengkap (Exact match atau nama diawali kata pencarian)
+    if (item.nama && (item.nama.toLowerCase().trim() === qLower || item.nama.toLowerCase().trim().startsWith(qLower))) return true;
     return false;
   });
 }
@@ -319,10 +317,10 @@ function generateUniqueTicketCode(eventName) {
   return `${prefix}${String(year).slice(-2)}-${randomCode}`;
 }
 
-// Helper Generator No. Peserta Registrasi (Format: TP-001, TP-002, dst.)
+// Helper Generator No. Peserta Registrasi (Format: TSR-001, TSR-002, dst.)
 function generateParticipantRegId(existingArray) {
   const nextNum = (existingArray ? existingArray.length : 0) + 1;
-  return `TP-${String(nextNum).padStart(3, '0')}`;
+  return `TSR-${String(nextNum).padStart(3, '0')}`;
 }
 
 // 4. Form Registrasi 6 Field & Generator QR Code
@@ -410,7 +408,11 @@ function initRegistrationForm() {
         });
         const resJson = await response.json();
         if (resJson.status === "success") {
-          renderTicketSuccess(resJson.data || newRecord, 'reg-result-container');
+          const savedData = resJson.data || newRecord;
+          const currentLocal = getLocalData();
+          currentLocal.unshift(savedData);
+          saveLocalData(currentLocal);
+          renderTicketSuccess(savedData, 'reg-result-container');
           form.reset();
         } else {
           alert("Gagal melakukan pendaftaran: " + resJson.message);
@@ -506,7 +508,7 @@ function renderTicketSuccess(record, targetContainerId = 'reg-result-container')
       saveLocalData(localData);
     }
   }
-  const displayRegId = record.regId || "TP-001";
+  const displayRegId = record.regId || "TSR-001";
 
   const isLunas = record.statusBayar === 'LUNAS';
   const statusBadgeText = isLunas ? 'LUNAS' : (record.statusBayar || 'BELUM LUNAS');
@@ -819,13 +821,16 @@ function showUploadSuccessMessage(item) {
   const container = document.getElementById('upload-result-container');
   if (!container) return;
 
+  const participantName = (item && item.nama) ? item.nama : ((item && item.regId) ? item.regId : "Peserta");
+  const participantRegId = (item && item.regId) ? item.regId : "-";
+
   container.innerHTML = `
     <div class="glass-panel mt-3" style="border-color: var(--accent-emerald);">
       <div class="panel-title" style="color: var(--accent-emerald);">
         <i class="ri-checkbox-circle-line"></i> Bukti Transfer Berhasil Diunggah!
       </div>
       <p class="mt-1" style="color: #cbd5e1;">
-        Bukti transfer untuk <strong>${item.nama}</strong> (${item.regId}) telah diterima.
+        Bukti transfer untuk <strong>${participantName}</strong> (${participantRegId}) telah diterima.
       </p>
       <div class="mt-2">
         <span class="badge badge-warning">Status: Menunggu Verifikasi Panitia</span>

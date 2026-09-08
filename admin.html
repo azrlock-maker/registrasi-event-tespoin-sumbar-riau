@@ -138,11 +138,14 @@
           </div>
 
           <!-- Search Filter Bar -->
-          <div class="search-filter-bar">
-            <input type="text" id="admin-search-input" placeholder="Cari Nama, No. Reg, No. WA, atau Nama Toko..."
-              onkeyup="filterAdminTable()">
+          <div class="search-filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input type="text" id="admin-search-input" placeholder="Cari Nama, No. Reg (TSR-...), No. WA, atau Nama Toko..."
+              onkeyup="filterAdminTable()" style="flex: 1; min-width: 220px;">
             <button class="btn btn-secondary" onclick="filterAdminTable()">
               <i class="ri-search-line"></i> Cari
+            </button>
+            <button class="btn btn-emerald" id="btn-refresh-admin" onclick="refreshAdminData()">
+              <i class="ri-refresh-line"></i> Segarkan Data
             </button>
           </div>
 

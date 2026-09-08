@@ -162,7 +162,7 @@ function isPhoneMatch(phoneA, phoneB) {
   const normA = normalizePhone(phoneA);
   const normB = normalizePhone(phoneB);
   if (!normA || !normB) return false;
-  return normA === normB || normA.includes(normB) || normB.includes(normA);
+  return normA === normB;
 }
 
 function findParticipantByQuery(dataArray, query) {
@@ -171,19 +171,16 @@ function findParticipantByQuery(dataArray, query) {
   const qLower = qClean.toLowerCase();
 
   return dataArray.find(item => {
-    // 1. Cek No. Peserta / ID Registrasi (misal: TP-001)
-    if (item.regId && item.regId.toLowerCase() === qLower) return true;
+    // 1. Cek No. Peserta / ID Registrasi (misal: TSR-001)
+    if (item.regId && item.regId.toLowerCase().trim() === qLower) return true;
     // 2. Cek Kode Tiket Resmi (misal: CGC26-UNQC9Y)
-    if (item.ticketCode && item.ticketCode.toLowerCase() === qLower) return true;
+    if (item.ticketCode && item.ticketCode.toLowerCase().trim() === qLower) return true;
     // 3. Cek Alamat Email
-    if (item.email && item.email.toLowerCase() === qLower) return true;
-    // 4. Cek Nama Lengkap atau Nama Panggilan / Parsial
-    if (item.nama && (item.nama.toLowerCase() === qLower || item.nama.toLowerCase().includes(qLower))) return true;
-    // 5. Cek Nomor WhatsApp (fleksibel: 08xx, 628xx, 8xx, +62, spasi, dash)
+    if (item.email && item.email.toLowerCase().trim() === qLower) return true;
+    // 4. Cek Nomor WhatsApp (fleksibel: 08xx, 628xx, 8xx, +62, spasi, dash)
     if (item.noWa && isPhoneMatch(item.noWa, qClean)) return true;
-    // 6. Cek Nama Toko / Domisili
-    if (item.namaToko && item.namaToko.toLowerCase().includes(qLower)) return true;
-    if (item.domisili && item.domisili.toLowerCase().includes(qLower)) return true;
+    // 5. Cek Nama Lengkap (Exact match atau nama diawali kata pencarian)
+    if (item.nama && (item.nama.toLowerCase().trim() === qLower || item.nama.toLowerCase().trim().startsWith(qLower))) return true;
     return false;
   });
 }
@@ -339,7 +336,25 @@ function renderShirtSizeSummary(data) {
 }
 
 window.filterAdminTable = function () {
-  loadAdminTableData();
+  const tableBody = document.getElementById('admin-table-body');
+  const countHadir = document.getElementById('stat-total-hadir');
+  const countTotal = document.getElementById('stat-total-peserta');
+  const countLunas = document.getElementById('stat-total-lunas');
+  const data = getLocalData();
+  renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
+};
+
+window.refreshAdminData = async function () {
+  const btnRefresh = document.getElementById('btn-refresh-admin');
+  if (btnRefresh) {
+    btnRefresh.disabled = true;
+    btnRefresh.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Memperbarui...`;
+  }
+  await loadAdminTableData();
+  if (btnRefresh) {
+    btnRefresh.disabled = false;
+    btnRefresh.innerHTML = `<i class="ri-refresh-line"></i> Segarkan Data`;
+  }
 };
 
 window.adminSetLunas = async function (regId) {
@@ -351,7 +366,13 @@ window.adminSetLunas = async function (regId) {
     item.statusBayar = "LUNAS";
     item.statusTransfer = "Lunas - Terverifikasi Panitia";
     saveLocalData(data);
-    loadAdminTableData();
+
+    // Update tampilan tabel langsung (tanpa request fetch getData beruntun)
+    const tableBody = document.getElementById('admin-table-body');
+    const countHadir = document.getElementById('stat-total-hadir');
+    const countTotal = document.getElementById('stat-total-peserta');
+    const countLunas = document.getElementById('stat-total-lunas');
+    renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
 
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
@@ -378,7 +399,13 @@ window.adminSetHadir = async function (regId) {
     const jamNow = new Date().toLocaleString('id-ID');
     item.statusHadir = `HADIR (${jamNow})`;
     saveLocalData(data);
-    loadAdminTableData();
+
+    // Update tampilan tabel langsung
+    const tableBody = document.getElementById('admin-table-body');
+    const countHadir = document.getElementById('stat-total-hadir');
+    const countTotal = document.getElementById('stat-total-peserta');
+    const countLunas = document.getElementById('stat-total-lunas');
+    renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
 
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
@@ -411,10 +438,10 @@ function generateUniqueTicketCode(eventName) {
   return `${prefix}${String(year).slice(-2)}-${randomCode}`;
 }
 
-// Helper Generator No. Peserta Registrasi (Format: TP-001, TP-002, dst.)
+// Helper Generator No. Peserta Registrasi (Format: TSR-001, TSR-002, dst.)
 function generateParticipantRegId(existingArray) {
   const nextNum = (existingArray ? existingArray.length : 0) + 1;
-  return `TP-${String(nextNum).padStart(3, '0')}`;
+  return `TSR-${String(nextNum).padStart(3, '0')}`;
 }
 
 // 5. Form Pendaftaran On-The-Spot / COD Panitia
@@ -650,6 +677,12 @@ async function processAdminScanResult(qrText) {
           </button>
         </div>
       ` : ''}
+
+      <div class="mt-3">
+        <button class="btn btn-primary btn-full" onclick="startAdminScan()">
+          <i class="ri-qr-scan-line"></i> Scan Tiket Peserta Berikutnya
+        </button>
+      </div>
     </div>
   `;
     }
@@ -709,7 +742,7 @@ async function processAdminScanResult(qrText) {
       }, (err) => { });
     }
 
-    function handleKioskScanSuccess(qrText) {
+    async function handleKioskScanSuccess(qrText) {
       let searchKey = qrText;
       try {
         const parsed = JSON.parse(qrText);
@@ -718,63 +751,121 @@ async function processAdminScanResult(qrText) {
         else if (parsed.noWa) searchKey = parsed.noWa;
       } catch (e) { }
 
-      const data = getLocalData();
-      const item = findParticipantByQuery(data, searchKey);
       const kioskDisplay = document.getElementById('kiosk-display');
+
+      let data = getLocalData();
+      let item = findParticipantByQuery(data, searchKey);
+
+      // Fallback fetch ke GAS jika data belum ada di localStorage lokal
+      if (!item && !CONFIG.USE_MOCK_DATA) {
+        if (kioskDisplay) {
+          kioskDisplay.innerHTML = `
+            <div class="glass-panel animate-fadeIn" style="padding: 24px; text-align: center;">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--accent-cyan);"></i>
+              <p class="mt-1" style="color: #cbd5e1;">Memverifikasi tiket ke server cloud...</p>
+            </div>
+          `;
+        }
+        try {
+          const customInfoKiosk = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+          const gasUrlKiosk = customInfoKiosk.gasApiUrl || CONFIG.GAS_API_URL;
+          if (gasUrlKiosk) {
+            const resp = await fetch(`${gasUrlKiosk}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+            const text = await resp.text();
+            const json = JSON.parse(text);
+            if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+              saveLocalData(json.data);
+              data = json.data;
+              item = findParticipantByQuery(json.data, searchKey);
+            }
+          }
+        } catch (e) {
+          console.warn('[Kiosk GAS lookup error]', e);
+        }
+      }
 
       if (!item) {
         if (kioskDisplay) {
           kioskDisplay.innerHTML = `
-        <div class="glass-panel animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.2); padding: 30px;">
-          <h2 style="color: var(--accent-rose); font-size: 1.8rem; margin: 0;">
-            <i class="ri-error-warning-fill"></i> QR CODE TIDAK DIKENALI!
-          </h2>
-          <p class="mt-2" style="font-size: 1.1rem; color: #fff;">
-            Barcode / QR yang di-scan tidak terdaftar di sistem event ini.
-          </p>
-          <div class="mt-2" style="background: rgba(0, 0, 0, 0.5); padding: 8px 12px; border-radius: 8px; font-family: monospace; color: #fca5a5;">
-            ${String(searchKey).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
-          </div>
-          <p class="mt-2" style="color: #cbd5e1;">Silakan menuju ke Meja Registrasi Panitia.</p>
-        </div>
-      `;
+            <div class="glass-panel animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.2); padding: 30px;">
+              <h2 style="color: var(--accent-rose); font-size: 1.8rem; margin: 0;">
+                <i class="ri-error-warning-fill"></i> QR CODE TIDAK DIKENALI!
+              </h2>
+              <p class="mt-2" style="font-size: 1.1rem; color: #fff;">
+                Barcode / QR yang di-scan tidak terdaftar di sistem event ini.
+              </p>
+              <div class="mt-2" style="background: rgba(0, 0, 0, 0.5); padding: 8px 12px; border-radius: 8px; font-family: monospace; color: #fca5a5;">
+                ${String(searchKey).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+              </div>
+              <p class="mt-2" style="color: #cbd5e1;">Silakan menuju ke Meja Registrasi Panitia.</p>
+            </div>
+          `;
+        }
+      } else if (item.statusBayar !== 'LUNAS') {
+        // Blokir peserta yang belum lunas
+        if (kioskDisplay) {
+          kioskDisplay.innerHTML = `
+            <div class="glass-panel animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.2); padding: 30px;">
+              <h2 style="color: var(--accent-rose); font-size: 1.8rem; margin: 0;">
+                <i class="ri-forbid-line"></i> PEMBAYARAN BELUM LUNAS!
+              </h2>
+              <h3 class="mt-1" style="color: #fff; font-size: 1.5rem;">${item.nama.toUpperCase()}</h3>
+              <p class="mt-2" style="font-size: 1.05rem; color: #fecaca;">
+                Status tiket Anda: <strong class="badge badge-danger">${item.statusBayar}</strong>
+              </p>
+              <p class="mt-2" style="color: #cbd5e1;">
+                Mohon selesaikan pembayaran di <strong>Meja Registrasi Panitia</strong> untuk mengaktifkan tiket dan mengambil merchandise kaos.
+              </p>
+            </div>
+          `;
         }
       } else {
+        const isAlreadyHadir = item.statusHadir && item.statusHadir !== 'BELUM HADIR' && item.statusHadir.includes('HADIR');
         const jamNow = new Date().toLocaleString('id-ID');
-        item.statusHadir = `HADIR (${jamNow})`;
-        saveLocalData(data);
 
-        const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-        const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+        if (!isAlreadyHadir) {
+          item.statusHadir = `HADIR (${jamNow})`;
+          saveLocalData(data);
 
-        if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-          fetch(targetGasUrl, {
-            method: "POST",
-            body: JSON.stringify({ action: "presensi", regId: item.regId })
-          }).catch(err => console.error("GAS kiosk presensi sync error:", err));
+          const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+          const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+
+          if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+            fetch(targetGasUrl, {
+              method: "POST",
+              body: JSON.stringify({ action: "presensi", regId: item.regId })
+            }).catch(err => console.error("GAS kiosk presensi sync error:", err));
+          }
         }
 
         if (kioskDisplay) {
           kioskDisplay.innerHTML = `
-        <div class="kiosk-welcome-card">
-          <h1 style="color:#ffffff; font-size:2rem;"><i class="ri-checkbox-circle-fill" style="color:#34d399;"></i> PRESENSI BERHASIL!</h1>
-          <h2 class="mt-1" style="color:var(--accent-cyan); font-size:2.2rem;">SELAMAT DATANG, ${item.nama.toUpperCase()}!</h2>
-          <p style="font-size:1.1rem; color:#e2e8f0;">(${item.namaToko} - ${item.domisili})</p>
-          
-          <div class="mt-2">
-            <span class="merch-size-badge" style="font-size:2rem; padding:12px 32px;">👕 UKURAN BAJU: ${item.ukuranBaju}</span>
-          </div>
+            <div class="kiosk-welcome-card" style="border-color: ${isAlreadyHadir ? 'var(--accent-amber)' : 'var(--accent-emerald)'}">
+              <h1 style="color:#ffffff; font-size:1.9rem;">
+                <i class="${isAlreadyHadir ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill'}" style="color:${isAlreadyHadir ? '#fbbf24' : '#34d399'};"></i>
+                ${isAlreadyHadir ? 'SUDAH PERNAH PRESENSI SEBELUMNYA' : 'PRESENSI BERHASIL!'}
+              </h1>
+              <h2 class="mt-1" style="color:var(--accent-cyan); font-size:2.2rem;">SELAMAT DATANG, ${item.nama.toUpperCase()}!</h2>
+              <p style="font-size:1.05rem; color:#e2e8f0;">(${item.namaToko} - ${item.domisili})</p>
+              
+              <div class="mt-2">
+                <span class="merch-size-badge" style="font-size:1.8rem; padding:10px 28px;">👕 UKURAN BAJU: ${item.ukuranBaju}</span>
+              </div>
 
-          <p class="mt-2" style="color:#a7f3d0; font-weight:600;">Silakan Ambil Kaos & Tiket Fisik No: ${item.regId}</p>
-        </div>
-      `;
+              <p class="mt-2" style="color:${isAlreadyHadir ? '#fef08a' : '#a7f3d0'}; font-weight:600;">
+                ${isAlreadyHadir 
+                  ? `Catatan: Peserta sudah tercatat presensi pada ${item.statusHadir}` 
+                  : `Silakan Ambil Kaos & Tiket Fisik No: ${item.regId}`}
+              </p>
+            </div>
+          `;
         }
       }
 
-      // Auto Reset kembali ke Mode Scanning setelah 4 detik (Hands-free Loop)
+      // Auto Reset kembali ke Mode Scanning setelah 4.5 detik (Hands-free Loop)
       setTimeout(() => {
         startKioskLoop();
-      }, 4000);
+      }, 4500);
     }
 
     // 8. Pengaturan Poster & Info Event + Reset Data Event + Google Integration
@@ -843,6 +934,48 @@ async function processAdminScanResult(qrText) {
       const btnOpenSheet = document.getElementById('btn-open-sheet');
       if (btnOpenSheet) {
         btnOpenSheet.href = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "#";
+      }
+
+      // Sinkronisasi setting event terbaru dari GAS Cloud saat admin membuka portal
+      const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+      if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
+        fetch(`${targetGasUrl}?action=getSettings&t=${Date.now()}`, { redirect: 'follow' })
+          .then(r => r.text())
+          .then(text => {
+            const json = JSON.parse(text);
+            if (json.status === 'success' && json.settings) {
+              const cloud = json.settings;
+              if (!cloud.posterUrl && customInfo.posterUrl) {
+                cloud.posterUrl = customInfo.posterUrl;
+              }
+              localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloud));
+              if (inputName) inputName.value = cloud.name || CONFIG.EVENT_INFO.NAME;
+              if (inputDate) inputDate.value = cloud.date || CONFIG.EVENT_INFO.DATE;
+              if (inputVenue) inputVenue.value = cloud.venue || CONFIG.EVENT_INFO.VENUE;
+              if (inputPosterUrl) inputPosterUrl.value = cloud.posterUrl || CONFIG.EVENT_INFO.POSTER_URL;
+              const cloudPayment = cloud.paymentInfo || CONFIG.PAYMENT_INFO;
+              if (inputBankName) inputBankName.value = cloudPayment.bankName || CONFIG.PAYMENT_INFO.BANK_NAME;
+              if (inputBankAcc) inputBankAcc.value = cloudPayment.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
+              if (inputBankHolder) inputBankHolder.value = cloudPayment.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
+              if (inputSelfPresensi) {
+                inputSelfPresensi.value = (cloud.selfPresensiEnabled === false || cloud.selfPresensiEnabled === "false") ? "false" : "true";
+              }
+              if (inputDeadlineMode) {
+                inputDeadlineMode.value = cloud.deadlineMode || "unlimited";
+                if (groupDeadlineDatetime) {
+                  groupDeadlineDatetime.style.display = inputDeadlineMode.value === "datetime" ? "block" : "none";
+                }
+              }
+              if (inputDeadlineDatetime) inputDeadlineDatetime.value = cloud.deadlineDateTime || "";
+              if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || "";
+              if (inputAdminEmail) inputAdminEmail.value = cloud.adminEmail || "";
+              if (inputDriveFolder) inputDriveFolder.value = cloud.driveFolder || "Bukti_Transfer_Event";
+              if (inputGasUrl) inputGasUrl.value = cloud.gasApiUrl || CONFIG.GAS_API_URL || "";
+              if (inputSheetUrl) inputSheetUrl.value = cloud.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
+              if (btnOpenSheet) btnOpenSheet.href = cloud.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "#";
+            }
+          })
+          .catch(err => console.warn('[Admin getSettings sync error]', err));
       }
 
       form.addEventListener('submit', (e) => {
@@ -1098,7 +1231,7 @@ async function processAdminScanResult(qrText) {
         item.ticketCode = displayTicketCode;
         saveLocalData(data);
       }
-      const displayRegId = item.regId || "TP-001";
+      const displayRegId = item.regId || "TSR-001";
 
       const isLunas = item.statusBayar === 'LUNAS';
       const statusBadgeText = isLunas ? 'LUNAS' : (item.statusBayar || 'BELUM LUNAS');

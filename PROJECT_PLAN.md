@@ -20,7 +20,7 @@ Aplikasi Web Registrasi Event 100% Gratis berbasis **Frontend HTML/CSS/JS (di-ho
 4. **Pencegahan Duplikasi Data**: Pendaftaran dengan Email atau No WA yang sama akan ditolak secara otomatis dan diarahkan ke tombol *Lihat Tiket Saya*.
 5. **Batas Waktu & Deadline Pendaftaran Dinamis**: Admin dapat mengatur tanggal & jam penutupan pendaftaran secara otomatis atau manual langsung dari dashboard admin tanpa perlu mengubah kode program.
 6. **Notifikasi Email Panitia**: Otomatis mengirim email rangkuman ke Email Panitia saat ada pendaftaran atau upload transfer baru.
-7. **Presensi & Merchandise Pass**: Saat QR Code di-scan (oleh Panitia, Tablet Kios, atau HP Peserta), sistem menampilkan **Struk Presensi Digital** dengan highlight ukuran baju (misal `XL`) dan No Registrasi fisik.
+7. **Presensi & Merchandise Pass**: Saat QR Code di-scan (oleh Panitia, Tablet Kios, atau HP Peserta), sistem menampilkan **Struk Presensi Digital** dengan highlight ukuran baju (misal `XL`) dan No Registrasi fisik (format `TSR-xxx`).
 8. **Perhitungan Presensi Akurat**: Status presensi hanya terhitung `HADIR` jika peserta sudah melakukan scan presensi atau di-set presensi oleh panitia (status `BELUM HADIR` tidak akan pernah terhitung `HADIR`).
 
 ---

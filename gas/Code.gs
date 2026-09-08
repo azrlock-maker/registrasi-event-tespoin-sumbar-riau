@@ -109,10 +109,11 @@ function handleCheckDuplicate(email, noWa) {
   var normWa = normalizePhone(noWa);
 
   for (var i = 1; i < rows.length; i++) {
-    var existingEmail = String(rows[i][3]).toLowerCase();
+    var existingEmail = String(rows[i][3]).toLowerCase().trim();
     var existingWa = normalizePhone(rows[i][4]);
 
-    if ((email && existingEmail === String(email).toLowerCase()) || (normWa && existingWa === normWa)) {
+    if ((email && existingEmail && existingEmail === String(email).toLowerCase().trim()) || 
+        (normWa && normWa.length >= 8 && existingWa === normWa)) {
       return responseJSON({
         exists: true,
         data: formatRowToObject(rows[i])
@@ -131,10 +132,11 @@ function handleRegister(data, customEmail) {
 
   // Cek Anti-Duplikasi
   for (let i = 1; i < rows.length; i++) {
-    const existingEmail = String(rows[i][3]).toLowerCase();
+    const existingEmail = String(rows[i][3]).toLowerCase().trim();
     const existingWa = normalizePhone(rows[i][4]);
 
-    if (existingEmail === String(data.email).toLowerCase() || (normWa && existingWa === normWa)) {
+    if ((data.email && existingEmail && existingEmail === String(data.email).toLowerCase().trim()) || 
+        (normWa && normWa.length >= 8 && existingWa === normWa)) {
       return responseJSON({
         status: "duplicate",
         message: "Email atau Nomor WA sudah terdaftar sebelumnya.",
@@ -143,16 +145,15 @@ function handleRegister(data, customEmail) {
     }
   }
 
-  // Buat No Registrasi & Kode Tiket Unik
-  // Cek keunikan regId untuk mencegah duplikat saat ada pendaftaran bersamaan
+  // Buat No Registrasi & Kode Tiket Unik (Format Awalan: TSR-001, TSR-002, dst.)
+  const existingIds = rows.slice(1).map(r => String(r[1]));
   let regId = data.regId;
-  if (!regId) {
-    const existingIds = rows.slice(1).map(r => String(r[1]));
+  if (!regId || existingIds.includes(regId)) {
     let counter = rows.length; // rows.length sudah termasuk header, cocok sebagai angka urut berikutnya
-    let candidate = "TP-" + String(counter).padStart(3, '0');
+    let candidate = "TSR-" + String(counter).padStart(3, '0');
     while (existingIds.includes(candidate)) {
       counter++;
-      candidate = "TP-" + String(counter).padStart(3, '0');
+      candidate = "TSR-" + String(counter).padStart(3, '0');
     }
     regId = candidate;
   }
@@ -203,17 +204,17 @@ function handleUploadTransfer(regId, base64Data, fileName, customEmail, customFo
 
   let rowIndex = -1;
   for (let i = 1; i < rows.length; i++) {
-    const rowRegId = String(rows[i][1]).toLowerCase();
-    const rowNama = String(rows[i][2]).toLowerCase();
-    const rowEmail = String(rows[i][3]).toLowerCase();
+    const rowRegId = String(rows[i][1]).toLowerCase().trim();
+    const rowNama = String(rows[i][2]).toLowerCase().trim();
+    const rowEmail = String(rows[i][3]).toLowerCase().trim();
     const rowWa = normalizePhone(rows[i][4]);
-    const rowTicket = rows[i][12] ? String(rows[i][12]).toLowerCase() : "";
+    const rowTicket = rows[i][12] ? String(rows[i][12]).toLowerCase().trim() : "";
 
     if (rowRegId === qLower || 
-        rowTicket === qLower || 
-        rowEmail === qLower || 
-        rowNama === qLower || 
-        (qNormPhone && rowWa === qNormPhone)) {
+        (rowTicket && rowTicket === qLower) || 
+        (rowEmail && rowEmail === qLower) || 
+        (rowNama && rowNama === qLower) || 
+        (qNormPhone && qNormPhone.length >= 8 && rowWa === qNormPhone)) {
       rowIndex = i + 1; // 1-based index
       break;
     }
@@ -225,9 +226,17 @@ function handleUploadTransfer(regId, base64Data, fileName, customEmail, customFo
 
   // Auto Create / Find Drive Folder
   const folder = getOrCreateDriveFolder(customFolder);
-  const contentType = base64Data.substring(base64Data.indexOf(":") + 1, base64Data.indexOf(";"));
-  const bytes = Utilities.base64Decode(base64Data.split(",")[1]);
-  const blob = Utilities.newBlob(bytes, contentType, `Bukti_${regId}_${fileName}`);
+  let contentType = "image/jpeg";
+  let base64String = base64Data;
+  if (base64Data.indexOf(",") !== -1) {
+    var parts = base64Data.split(",");
+    var match = parts[0].match(/:(.*?);/);
+    if (match) contentType = match[1];
+    base64String = parts[1];
+  }
+  const bytes = Utilities.base64Decode(base64String);
+  const safeFileName = String(fileName || "bukti.jpg").replace(/[^a-zA-Z0-9._-]/g, '_');
+  const blob = Utilities.newBlob(bytes, contentType, `Bukti_${regId}_${safeFileName}`);
   
   const file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -244,10 +253,15 @@ function handleUploadTransfer(regId, base64Data, fileName, customEmail, customFo
     customEmail
   );
 
+  const participant = formatRowToObject(rows[rowIndex - 1]);
+  participant.statusTransfer = "Menunggu Verifikasi";
+  participant.urlBukti = fileUrl;
+  participant.statusBayar = "MENUNGGU VERIFIKASI";
+
   return responseJSON({
     status: "success",
     message: "Bukti transfer berhasil diunggah.",
-    data: { regId, fileUrl }
+    data: participant
   });
 }
 
@@ -295,11 +309,17 @@ function handlePresensi(regId) {
   const sheet = getOrCreateSheet();
   const rows = sheet.getDataRange().getValues();
   let rowIndex = -1;
+  const qLower = String(regId).toLowerCase().trim();
+  const qNormPhone = normalizePhone(regId);
 
   for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][1]).toLowerCase() === String(regId).toLowerCase() || 
-        (rows[i][12] && String(rows[i][12]).toLowerCase() === String(regId).toLowerCase()) || 
-        normalizePhone(rows[i][4]) === normalizePhone(regId)) {
+    const rowRegId = String(rows[i][1]).toLowerCase().trim();
+    const rowTicket = rows[i][12] ? String(rows[i][12]).toLowerCase().trim() : "";
+    const rowWa = normalizePhone(rows[i][4]);
+
+    if (rowRegId === qLower || 
+        (rowTicket && rowTicket === qLower) || 
+        (qNormPhone && qNormPhone.length >= 8 && rowWa === qNormPhone)) {
       rowIndex = i + 1;
       break;
     }
