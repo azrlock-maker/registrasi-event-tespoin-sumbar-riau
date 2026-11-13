@@ -6,7 +6,7 @@
  * ⚡ Developed & Crafted by: ReStore
  */
 
-console.log("%c⚡ Event Registration System | Crafted & Developed by ReStore", "color: #38bdf8; font-size: 12px; font-weight: bold; background: #0f172a; padding: 4px 10px; border-radius: 4px;");
+console.log("%c⚡ Event Registration System | Crafted & Developed by radh29", "color: #38bdf8; font-size: 12px; font-weight: bold; background: #0f172a; padding: 4px 10px; border-radius: 4px;");
 
 document.addEventListener('DOMContentLoaded', () => {
   initEventDetails();
@@ -484,7 +484,7 @@ function showDuplicateAlert(existing) {
         <i class="ri-error-warning-fill"></i> Data Sudah Terdaftar!
       </div>
       <p class="mt-1" style="color: #cbd5e1;">
-        Email <strong>${existing.email}</strong> atau No WhatsApp <strong>${existing.noWa}</strong> telah terdaftar sebelumnya atas nama <strong>${existing.nama}</strong>.
+        Email <strong>${escapeHtml(existing.email)}</strong> atau No WhatsApp <strong>${escapeHtml(existing.noWa)}</strong> telah terdaftar sebelumnya atas nama <strong>${escapeHtml(existing.nama)}</strong>.
       </p>
       <div class="mt-2">
         <span class="badge badge-warning">NO PESERTA: ${existing.regId} | TIKET: ${existing.ticketCode || existing.regId}</span>
@@ -555,7 +555,7 @@ function renderTicketSuccess(record, targetContainerId = 'reg-result-container')
         <div class="eticket-header">
           <div class="eticket-header-info">
             <h3 class="eticket-header-title">E-TIKET RESMI</h3>
-            <div class="eticket-header-event" title="${eventName}">${eventName}</div>
+            <div class="eticket-header-event" title="${escapeHtml(eventName)}">${escapeHtml(eventName)}</div>
           </div>
           <div class="eticket-status-badge ${statusBadgeClass}">
             <i class="${statusIcon}"></i> ${statusBadgeText}
@@ -577,15 +577,15 @@ function renderTicketSuccess(record, targetContainerId = 'reg-result-container')
           <hr class="eticket-divider">
           <div class="eticket-row">
             <span class="eticket-label">Nama</span>
-            <span class="eticket-val">${record.nama}</span>
+            <span class="eticket-val">${escapeHtml(record.nama)}</span>
           </div>
           <div class="eticket-row">
             <span class="eticket-label">Ukuran Baju</span>
-            <span class="eticket-val" style="color: #f43f5e; font-weight: 800;">${record.ukuranBaju || '-'}</span>
+            <span class="eticket-val" style="color: #f43f5e; font-weight: 800;">${escapeHtml(record.ukuranBaju || '-')}</span>
           </div>
           <div class="eticket-row">
             <span class="eticket-label">WhatsApp</span>
-            <span class="eticket-val">${record.noWa}</span>
+            <span class="eticket-val">${escapeHtml(record.noWa)}</span>
           </div>
 
           <!-- Event Meta Details (Date & Venue) -->
@@ -605,7 +605,7 @@ function renderTicketSuccess(record, targetContainerId = 'reg-result-container')
             Tunjukkan QR ini saat registrasi ulang di lokasi. Jangan bagikan ke orang lain.
           </div>
           <div style="font-size: 0.7rem; color: #94a3b8; text-align: center; margin-top: 8px; opacity: 0.85; letter-spacing: 0.5px;">
-            ⚡ System Generated & Powered by <strong>ReStore</strong>
+            ⚡ System Generated & Powered by <strong>TESPOIN SUMBAR-RIAU</strong>
           </div>
         </div>
       </div>
@@ -845,6 +845,26 @@ function showUploadSuccessMessage(item) {
 
   const participantName = (item && item.nama) ? item.nama : ((item && item.regId) ? item.regId : "Peserta");
   const participantRegId = (item && item.regId) ? item.regId : "-";
+  const ticketCode = (item && item.ticketCode) ? item.ticketCode : "-";
+  const noWa = (item && item.noWa) ? item.noWa : "-";
+  const ukuranBaju = (item && item.ukuranBaju) ? item.ukuranBaju : "-";
+  const urlBukti = (item && item.urlBukti) ? item.urlBukti : "";
+
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const waPanitia = (customInfo.waPanitiaNumber || "").replace(/\D/g, "");
+  let waButtonHtml = "";
+  if (waPanitia) {
+    const text = `Halo Panitia, bukti transfer baru:%0A%0ANama: ${encodeURIComponent(participantName)}%0ANo. Peserta: ${encodeURIComponent(participantRegId)}%0AKode Tiket: ${encodeURIComponent(ticketCode)}%0ANo WA: ${encodeURIComponent(noWa)}%0AUkuran Baju: ${encodeURIComponent(ukuranBaju)}%0A%0ALink Bukti Transfer: ${encodeURIComponent(urlBukti)}%0A%0AMohon verifikasi. Terima kasih.`;
+    const waLink = `https://wa.me/${waPanitia}?text=${text}`;
+    waButtonHtml = `
+      <div class="mt-3">
+        <a class="btn btn-emerald btn-full" href="${waLink}" target="_blank" rel="noopener">
+          <i class="ri-whatsapp-line"></i> Kirim Notifikasi ke WA Panitia
+        </a>
+        <p style="font-size:0.78rem; color:var(--text-muted); margin-top:6px;">Klik tombol di atas untuk mengirim ringkasan + link bukti transfer ke WA panitia yang ditunjuk.</p>
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <div class="glass-panel mt-3" style="border-color: var(--accent-emerald);">
@@ -852,13 +872,15 @@ function showUploadSuccessMessage(item) {
         <i class="ri-checkbox-circle-line"></i> Bukti Transfer Berhasil Diunggah!
       </div>
       <p class="mt-1" style="color: #cbd5e1;">
-        Bukti transfer untuk <strong>${participantName}</strong> (${participantRegId}) telah diterima.
+        Bukti transfer untuk <strong>${escapeHtml(participantName)}</strong> (${escapeHtml(participantRegId)}) telah diterima.
       </p>
       <div class="mt-2">
         <span class="badge badge-warning">Status: Menunggu Verifikasi Panitia</span>
       </div>
+      ${waButtonHtml}
     </div>
   `;
+  container.scrollIntoView({ behavior: 'smooth' });
 }
 
 // 6. Cek Status Pendaftaran (Mendukung Cari via No WA 08xx, 628xx, 8xx, No Peserta, Kode Tiket)
@@ -915,7 +937,7 @@ function initCheckStatusForm() {
         <div class="glass-panel mt-3">
           <div class="panel-header">
             <h3 class="panel-title" style="color:var(--accent-cyan); font-size:1.15rem;">
-              <i class="ri-user-search-line"></i> Hasil Pencarian: ${found.nama}
+              <i class="ri-user-search-line"></i> Hasil Pencarian: ${escapeHtml(found.nama)}
             </h3>
           </div>
           <div class="ticket-info-grid mt-2">

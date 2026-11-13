@@ -6,7 +6,7 @@
  * ⚡ Developed & Crafted by: ReStore
  */
 
-console.log("%c⚡ Event Registration System | Crafted & Developed by ReStore", "color: #38bdf8; font-size: 12px; font-weight: bold; background: #0f172a; padding: 4px 10px; border-radius: 4px;");
+console.log("%c⚡ Event Registration System | Crafted & Developed by radh29", "color: #38bdf8; font-size: 12px; font-weight: bold; background: #0f172a; padding: 4px 10px; border-radius: 4px;");
 
 document.addEventListener('DOMContentLoaded', () => {
   initAdminAuth();
@@ -46,14 +46,20 @@ function saveLocalData(dataArray) {
   localStorage.setItem("EVENT_REGISTRATIONS_DB", JSON.stringify(dataArray));
 }
 
-// 1. Inisialisasi Auth Login Username & Password (Terpisah Admin vs Panitia)
+// Helper: ambil token admin dari sessionStorage
+function getAdminToken() {
+  return sessionStorage.getItem('ADMIN_TOKEN') || "";
+}
+
+// 1. Inisialisasi Auth Login (verifikasi ke backend GAS, token-based)
 function initAdminAuth() {
   const loginForm = document.getElementById('admin-login-form');
   const loginPanel = document.getElementById('login-panel');
   const dashboardPanel = document.getElementById('admin-dashboard');
 
+  const savedToken = sessionStorage.getItem('ADMIN_TOKEN');
   const savedRole = sessionStorage.getItem('ADMIN_ROLE');
-  if (savedRole) {
+  if (savedToken && savedRole) {
     if (loginPanel) loginPanel.classList.add('d-none');
     if (dashboardPanel) dashboardPanel.classList.remove('d-none');
     applyRolePermissions(savedRole);
@@ -62,33 +68,40 @@ function initAdminAuth() {
   }
 
   if (loginForm) {
-    loginForm.addEventListener('submit', (e) => {
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const user = document.getElementById('admin-username').value.trim();
       const pass = document.getElementById('admin-password').value.trim();
 
-      // Cek Role Super Admin (Akses Penuh + Setting & Reset)
-      if (user === CONFIG.ADMIN_AUTH.ADMIN.USERNAME && pass === CONFIG.ADMIN_AUTH.ADMIN.PASSWORD) {
-        sessionStorage.setItem('ADMIN_ROLE', 'ADMIN');
-        loginPanel.classList.add('d-none');
-        dashboardPanel.classList.remove('d-none');
-        applyRolePermissions('ADMIN');
-        loadAdminTableData();
-        return;
-      }
+      const btn = loginForm.querySelector('button[type="submit"]');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Memverifikasi...'; }
 
-      // Cek Role Panitia Operasional (Akses Data, Scanner, Kios)
-      if (user === CONFIG.ADMIN_AUTH.PANITIA.USERNAME && pass === CONFIG.ADMIN_AUTH.PANITIA.PASSWORD) {
-        sessionStorage.setItem('ADMIN_ROLE', 'PANITIA');
-        loginPanel.classList.add('d-none');
-        dashboardPanel.classList.remove('d-none');
-        applyRolePermissions('PANITIA');
-        loadAdminTableData();
-        return;
-      }
+      const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+      const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
 
-      alert("Username atau Password yang Anda masukkan salah!\n\nMohon periksa kembali dan coba lagi.");
+      try {
+        const resp = await fetch(targetGasUrl, {
+          method: "POST",
+          body: JSON.stringify({ action: "login", username: user, password: pass })
+        });
+        const json = await resp.json();
+        if (json.status === "success" && json.token) {
+          sessionStorage.setItem('ADMIN_TOKEN', json.token);
+          sessionStorage.setItem('ADMIN_ROLE', json.role);
+          if (loginPanel) loginPanel.classList.add('d-none');
+          if (dashboardPanel) dashboardPanel.classList.remove('d-none');
+          applyRolePermissions(json.role);
+          loadAdminTableData();
+        } else {
+          alert(json.message || "Username atau Password salah!");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Gagal terhubung ke server. Periksa koneksi / URL GAS.");
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-login-box-line"></i> Masuk Ke Portal'; }
+      }
     });
   }
 }
@@ -109,6 +122,7 @@ function applyRolePermissions(role) {
 }
 
 window.adminLogout = function () {
+  sessionStorage.removeItem('ADMIN_TOKEN');
   sessionStorage.removeItem('ADMIN_ROLE');
   window.location.reload();
 };
@@ -205,7 +219,8 @@ async function loadAdminTableData() {
       const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
       const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
       if (targetGasUrl) {
-        const resp = await fetch(`${targetGasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+        const token = getAdminToken();
+const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURIComponent(token)}&t=${Date.now()}`, { redirect: 'follow' });
         const text = await resp.text();
         const json = JSON.parse(text);
         if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
@@ -267,12 +282,12 @@ function renderAdminTable(data, tableBody, countHadir, countTotal, countLunas) {
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><strong style="color:var(--accent-cyan); font-family:monospace;">${item.regId}</strong></td>
-      <td><strong>${item.nama}</strong></td>
-      <td>${item.namaToko}</td>
-      <td>${item.domisili}</td>
-      <td><span style="color:var(--accent-rose); font-weight:bold;">${item.ukuranBaju}</span></td>
-      <td>${item.noWa}</td>
+      <td><strong style="color:var(--accent-cyan); font-family:monospace;">${escapeHtml(item.regId)}</strong></td>
+      <td><strong>${escapeHtml(item.nama)}</strong></td>
+      <td>${escapeHtml(item.namaToko)}</td>
+      <td>${escapeHtml(item.domisili)}</td>
+      <td><span style="color:var(--accent-rose); font-weight:bold;">${escapeHtml(item.ukuranBaju)}</span></td>
+      <td>${escapeHtml(item.noWa)}</td>
       <td>${badgeBayar}</td>
       <td>${badgeHadir}</td>
       <td>
@@ -381,7 +396,7 @@ window.adminSetLunas = async function (regId) {
       try {
         await fetch(targetGasUrl, {
           method: "POST",
-          body: JSON.stringify({ action: "verifyPayment", regId: regId, status: "LUNAS" })
+          body: JSON.stringify({ action: "verifyPayment", regId: regId, status: "LUNAS", token: getAdminToken() })
         });
       } catch (e) {
         console.error("GAS verifyPayment error:", e);
@@ -414,7 +429,7 @@ window.adminSetHadir = async function (regId) {
       try {
         await fetch(targetGasUrl, {
           method: "POST",
-          body: JSON.stringify({ action: "presensi", regId: regId })
+          body: JSON.stringify({ action: "presensi", regId: regId, token: getAdminToken() })
         });
       } catch (e) {
         console.error("GAS presensi error:", e);
@@ -501,7 +516,8 @@ function initOTSForm() {
           body: JSON.stringify({
             action: 'register',
             data: newRecord,
-            adminEmail: customInfoOTS.adminEmail || ''
+            adminEmail: customInfoOTS.adminEmail || '',
+            token: getAdminToken()
           })
         });
         const json = JSON.parse(await resp.text());
@@ -592,7 +608,8 @@ async function processAdminScanResult(qrText) {
         try {
           const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
           const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
-          const resp = await fetch(`${targetGasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+          const token = getAdminToken();
+const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURIComponent(token)}&t=${Date.now()}`, { redirect: 'follow' });
           const text = await resp.text();
           const json = JSON.parse(text);
           if (json.status === 'success' && Array.isArray(json.data)) {
@@ -644,7 +661,7 @@ async function processAdminScanResult(qrText) {
         if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
           fetch(targetGasUrl, {
             method: "POST",
-            body: JSON.stringify({ action: "presensi", regId: item.regId })
+            body: JSON.stringify({ action: "presensi", regId: item.regId, token: getAdminToken() })
           }).catch(err => console.error("GAS presensi scan sync error:", err));
         }
       }
@@ -655,7 +672,7 @@ async function processAdminScanResult(qrText) {
         <i class="ri-checkbox-circle-fill"></i> ${isAlreadyHadir ? 'PESERTA SUDAH PRESENSI SEBELUMNYA' : 'PRESENSI HARI-H BERHASIL!'}
       </div>
       
-      <h2 class="mt-1" style="color: #fff;">${item.nama.toUpperCase()}</h2>
+      <h2 class="mt-1" style="color: #fff;">${escapeHtml(item.nama.toUpperCase())}</h2>
       <div style="font-family:monospace; color:var(--accent-cyan); font-size:1.2rem; font-weight:bold;">${item.regId}</div>
       
       <div class="mt-2">
@@ -711,7 +728,7 @@ async function processAdminScanResult(qrText) {
         const customInfoKiosk = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
         const gasUrlKiosk = customInfoKiosk.gasApiUrl || CONFIG.GAS_API_URL;
         if (gasUrlKiosk) {
-          fetch(`${gasUrlKiosk}?action=getData&t=${Date.now()}`, { redirect: 'follow' })
+          fetch(`${gasUrlKiosk}?action=getData&token=${encodeURIComponent(getAdminToken())}&t=${Date.now()}`, { redirect: 'follow' })
             .then(r => r.text())
             .then(t => {
               const j = JSON.parse(t);
@@ -770,7 +787,7 @@ async function processAdminScanResult(qrText) {
           const customInfoKiosk = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
           const gasUrlKiosk = customInfoKiosk.gasApiUrl || CONFIG.GAS_API_URL;
           if (gasUrlKiosk) {
-            const resp = await fetch(`${gasUrlKiosk}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
+            const resp = await fetch(`${gasUrlKiosk}?action=getData&token=${encodeURIComponent(getAdminToken())}&t=${Date.now()}`, { redirect: 'follow' });
             const text = await resp.text();
             const json = JSON.parse(text);
             if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
@@ -833,7 +850,7 @@ async function processAdminScanResult(qrText) {
           if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
             fetch(targetGasUrl, {
               method: "POST",
-              body: JSON.stringify({ action: "presensi", regId: item.regId })
+              body: JSON.stringify({ action: "presensi", regId: item.regId, token: getAdminToken() })
             }).catch(err => console.error("GAS kiosk presensi sync error:", err));
           }
         }
@@ -890,7 +907,8 @@ async function processAdminScanResult(qrText) {
 
       // Integrasi Google
       const inputAdminEmail = document.getElementById('set-admin-email');
-      const inputDriveFolder = document.getElementById('set-drive-folder');
+      const inputWaPanitia = document.getElementById('set-wa-panitia');
+       const inputDriveFolder = document.getElementById('set-drive-folder');
       const inputGasUrl = document.getElementById('set-gas-url');
       const inputSheetUrl = document.getElementById('set-sheet-url');
 
@@ -970,6 +988,7 @@ async function processAdminScanResult(qrText) {
 
       // Isi data Integrasi Google
       if (inputAdminEmail) inputAdminEmail.value = customInfo.adminEmail || CONFIG.ADMIN_EMAIL || "";
+       if (inputWaPanitia) inputWaPanitia.value = customInfo.waPanitiaNumber || "";
       if (inputDriveFolder) inputDriveFolder.value = customInfo.driveFolder || "Bukti_Transfer_Event";
       if (inputGasUrl) inputGasUrl.value = customInfo.gasApiUrl || CONFIG.GAS_API_URL || "";
       if (inputSheetUrl) inputSheetUrl.value = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
@@ -1016,6 +1035,7 @@ async function processAdminScanResult(qrText) {
               }
               if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || "";
               if (inputAdminEmail) inputAdminEmail.value = cloud.adminEmail || "";
+               if (inputWaPanitia) inputWaPanitia.value = cloud.waPanitiaNumber || "";
               if (inputDriveFolder) inputDriveFolder.value = cloud.driveFolder || "Bukti_Transfer_Event";
               if (inputGasUrl) inputGasUrl.value = cloud.gasApiUrl || CONFIG.GAS_API_URL || "";
               if (inputSheetUrl) inputSheetUrl.value = cloud.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
@@ -1041,6 +1061,7 @@ async function processAdminScanResult(qrText) {
         const closedMessage = inputClosedMessage ? inputClosedMessage.value.trim() : "";
 
         const adminEmail = inputAdminEmail ? inputAdminEmail.value.trim() : "";
+         const waPanitiaNumber = inputWaPanitia ? inputWaPanitia.value.trim() : "";
         const driveFolder = inputDriveFolder ? inputDriveFolder.value.trim() : "";
         const gasApiUrl = inputGasUrl ? inputGasUrl.value.trim() : "";
         const sheetUrl = inputSheetUrl ? inputSheetUrl.value.trim() : "";
@@ -1061,6 +1082,7 @@ async function processAdminScanResult(qrText) {
           deadlineDateTime,
           closedMessage,
           adminEmail,
+           waPanitiaNumber,
           driveFolder,
           gasApiUrl,
           sheetUrl
@@ -1096,7 +1118,8 @@ async function processAdminScanResult(qrText) {
                 body: JSON.stringify({
                   action: "uploadPoster",
                   fileData: compressedBase64,
-                  fileName: file.name
+                  fileName: file.name,
+                   token: getAdminToken()
                 })
               })
                 .then(res => res.json())
@@ -1198,7 +1221,7 @@ async function processAdminScanResult(qrText) {
 
         fetch(targetGasUrl, {
           method: "POST",
-          body: JSON.stringify({ action: "saveSettings", settings: settingsForCloud })
+          body: JSON.stringify({ action: "saveSettings", settings: settingsForCloud, token: getAdminToken() })
         })
           .then(res => res.json())
           .then(json => {
@@ -1259,7 +1282,7 @@ async function processAdminScanResult(qrText) {
         try {
           await fetch(gasUrlReset, {
             method: "POST",
-            body: JSON.stringify({ action: "resetAllData" })
+            body: JSON.stringify({ action: "resetAllData", token: getAdminToken() })
           });
         } catch (e) {
           console.error("Gagal mereset data Google Sheet:", e);
@@ -1315,7 +1338,7 @@ async function processAdminScanResult(qrText) {
         <div class="eticket-header">
           <div class="eticket-header-info">
             <h3 class="eticket-header-title">E-TIKET RESMI</h3>
-            <div class="eticket-header-event" title="${eventName}">${eventName}</div>
+            <div class="eticket-header-event" title="${escapeHtml(eventName)}">${escapeHtml(eventName)}</div>
           </div>
           <div class="eticket-status-badge ${statusBadgeClass}">
             <i class="${statusIcon}"></i> ${statusBadgeText}
@@ -1337,15 +1360,15 @@ async function processAdminScanResult(qrText) {
           <hr class="eticket-divider">
           <div class="eticket-row">
             <span class="eticket-label">Nama</span>
-            <span class="eticket-val">${item.nama}</span>
+            <span class="eticket-val">${escapeHtml(item.nama)}</span>
           </div>
           <div class="eticket-row">
             <span class="eticket-label">Ukuran Baju</span>
-            <span class="eticket-val" style="color: #f43f5e; font-weight: 800;">${item.ukuranBaju || '-'}</span>
+            <span class="eticket-val" style="color: #f43f5e; font-weight: 800;">${escapeHtml(item.ukuranBaju || '-')}</span>
           </div>
           <div class="eticket-row">
             <span class="eticket-label">WhatsApp</span>
-            <span class="eticket-val">${item.noWa}</span>
+            <span class="eticket-val">${escapeHtml(item.noWa)}</span>
           </div>
 
           <!-- Event Meta Details (Date & Venue) -->
@@ -1365,7 +1388,7 @@ async function processAdminScanResult(qrText) {
             Tunjukkan QR ini saat registrasi ulang di lokasi. Jangan bagikan ke orang lain.
           </div>
           <div style="font-size: 0.7rem; color: #94a3b8; text-align: center; margin-top: 8px; opacity: 0.85; letter-spacing: 0.5px;">
-            ⚡ System Generated & Powered by <strong>ReStore</strong>
+            ⚡ System Generated & Powered by <strong>TESPOIN SUMBAR-RIAU</strong>
           </div>
         </div>
       </div>

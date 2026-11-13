@@ -393,6 +393,12 @@
               </div>
 
               <div class="form-group full-width">
+                <label for="set-wa-panitia">Nomor WA Panitia (Notifikasi Bukti Transfer)</label>
+                <input type="tel" id="set-wa-panitia" placeholder="Contoh: 6281234567890">
+                <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Nomor WA yang akan menerima notifikasi bukti transfer (format 628xxx). Kosongkan jika tidak ingin notifikasi WA. Disimpan di cloud.</p>
+              </div>
+
+              <div class="form-group full-width">
                 <label for="set-drive-folder">Nama Folder Google Drive untuk Bukti Transfer</label>
                 <input type="text" id="set-drive-folder" placeholder="Contoh: Bukti_Transfer_Event atau Folder ID Google Drive">
                 <p style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">Folder di Google Drive Anda tempat menyimpan foto struk transfer peserta secara otomatis.</p>
@@ -482,12 +488,13 @@
     <footer class="app-watermark-footer">
       <div class="watermark-badge">
         <i class="ri-code-s-slash-line" style="color: var(--accent-cyan);"></i>
-        <span>Crafted & Developed by <strong>ReStore</strong></span>
+        <span>Crafted & Developed by <strong>radh29</strong></span>
       </div>
     </footer>
   </div>
 
   <!-- Scripts Application -->
+  <script src="js/utils.js"></script>
   <script src="js/config.js"></script>
   <script src="js/app-panitia.js"></script>
 </body>

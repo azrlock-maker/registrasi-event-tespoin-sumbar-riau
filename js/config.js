@@ -13,19 +13,8 @@ const CONFIG = {
   // Direct Link Google Sheets Panitia (Akan dibuka saat klik tombol 'Buka Google Sheets Data')
   GOOGLE_SHEET_URL: "https://docs.google.com/spreadsheets/d/1yGcg5QyqzFfFhvOra4iqyt6UQmpDk3B6QwtGDn0JXzk/edit?usp=sharing",
 
-  // Proteksi Terpisah Login Admin & Panitia (admin.html)
-  ADMIN_AUTH: {
-    // 👑 Role 1: Super Admin (Akses Penuh Seluruh Tab termasuk Setting Poster & Reset Data)
-    ADMIN: {
-      USERNAME: "admin",
-      PASSWORD: "admin1129"
-    },
-    // 👤 Role 2: Panitia Registrasi (Akses Operasional: Data Peserta, Verifikasi Bayar, Scanner, & Kios)
-    PANITIA: {
-      USERNAME: "panitia",
-      PASSWORD: "panitia123"
-    }
-  },
+  // Autentikasi admin dipindah ke backend GAS (token-based). Kredensial tidak lagi di frontend.
+  // Pengaturan username/password dilakukan di server (gas/Code.gs) via Script Properties.
 
   // Email Notifikasi Panitia
   ADMIN_EMAIL: "",
