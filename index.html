@@ -73,9 +73,6 @@
       <button class="tab-btn" data-tab="panel-status">
         <i class="ri-search-eye-line"></i> Cek Status
       </button>
-      <button class="tab-btn" id="tab-btn-self-presensi" data-tab="panel-self-presensi">
-        <i class="ri-qr-scan-line"></i> Presensi Mandiri
-      </button>
     </nav>
 
     <!-- TAB 1: FORM REGISTRASI (6 FIELD) -->
@@ -216,34 +213,6 @@
       </div>
     </section>
 
-    <!-- TAB 4: PRESENSI MANDIRI (SCAN POSTER VENUE) -->
-    <section id="panel-self-presensi" class="tab-panel">
-      <div class="glass-panel text-center">
-        <div class="panel-header">
-          <h2 class="panel-title" style="justify-content: center;"><i class="ri-qr-scan-2-line"
-              style="color: var(--accent-emerald);"></i> Presensi Mandiri Hari-H Event</h2>
-          <p class="panel-subtitle">Arahkan kamera HP Anda ke Poster QR Code Venue yang dipajang Panitia di Pintu Masuk.
-          </p>
-        </div>
-
-        <div class="scanner-card">
-          <div class="form-group">
-            <label for="self-scan-reg-id">ID Registrasi / No. WA Anda <span class="required-star">*</span></label>
-            <input type="text" id="self-scan-reg-id" placeholder="Contoh: TSR-001, Kode Tiket, atau 081234567890">
-          </div>
-
-          <button class="btn btn-emerald btn-full mt-2" id="btn-start-self-scanner">
-            <i class="ri-camera-lens-line"></i> Buka Kamera & Scan Poster Venue
-          </button>
-
-          <div id="self-scanner-wrapper" class="d-none mt-2">
-            <div id="self-reader"></div>
-          </div>
-        </div>
-
-        <div id="self-scan-result" class="mt-3"></div>
-      </div>
-    </section>
 
     <!-- Footer Watermark Developer Branding -->
     <footer class="app-watermark-footer">

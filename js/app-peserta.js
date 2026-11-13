@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initCopyAccount();
   initUploadForm();
   initCheckStatusForm();
-  initSelfPresensiScanner();
 });
 
 // Mock Storage Helper (Untuk Uji Coba Lokal)
@@ -155,41 +154,6 @@ function applyEventDetailsToUI() {
   if (accNum) accNum.textContent = paymentInfo.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
   if (accHolder) accHolder.textContent = `a.n ${paymentInfo.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER}`;
 
-  // Kontrol Tampil / Sembunyi Tab Presensi Mandiri dari Setting Admin (Support Boolean & String "false")
-  const isSelfPresensiEnabled = !(
-    customInfo.selfPresensiEnabled === false ||
-    customInfo.selfPresensiEnabled === "false" ||
-    customInfo.selfPresensiEnabled === 0 ||
-    customInfo.selfPresensiEnabled === "0"
-  );
-
-  const selfPresensiBtn = document.getElementById('tab-btn-self-presensi') || document.querySelector('.tab-btn[data-tab="panel-self-presensi"]');
-  const selfPresensiPanel = document.getElementById('panel-self-presensi');
-
-  if (selfPresensiBtn) {
-    if (isSelfPresensiEnabled) {
-      selfPresensiBtn.style.display = '';
-      selfPresensiBtn.classList.remove('d-none');
-    } else {
-      selfPresensiBtn.style.setProperty('display', 'none', 'important');
-      selfPresensiBtn.classList.add('d-none');
-      // Jika peserta sedang membuka tab presensi mandiri saat dinonaktifkan, alihkan ke form registrasi
-      if (selfPresensiBtn.classList.contains('active')) {
-        const regTabBtn = document.querySelector('.tab-btn[data-tab="panel-register"]');
-        if (regTabBtn) regTabBtn.click();
-      }
-    }
-  }
-
-  if (selfPresensiPanel) {
-    if (!isSelfPresensiEnabled) {
-      selfPresensiPanel.classList.remove('active');
-      selfPresensiPanel.style.setProperty('display', 'none', 'important');
-    } else {
-      selfPresensiPanel.style.display = '';
-    }
-  }
-
   // Handle Batas Waktu & Penutupan Akses Form Pendaftaran
   const closed = isRegistrationClosed(customInfo);
   const regForm = document.getElementById('registration-form');
@@ -283,64 +247,8 @@ function initCopyAccount() {
   });
 }
 
-// Helper Normalisasi Nomor Telepon / WA (mendukung format 08xx, 628xx, 8xx, spasi, dash, +62)
-function normalizePhone(phoneStr) {
-  if (!phoneStr) return "";
-  let digits = String(phoneStr).replace(/\D/g, "");
-  if (digits.startsWith("62")) {
-    digits = "0" + digits.slice(2);
-  } else if (digits.startsWith("8")) {
-    digits = "0" + digits;
-  }
-  return digits;
-}
-
-function isPhoneMatch(phoneA, phoneB) {
-  const normA = normalizePhone(phoneA);
-  const normB = normalizePhone(phoneB);
-  if (!normA || !normB) return false;
-  // Pastikan pencocokan nomor telepon akurat dan tidak salah sasaran ke nomor lain
-  return normA === normB;
-}
-
-function findParticipantByQuery(dataArray, query) {
-  if (!dataArray || !query) return null;
-  const qClean = String(query).trim();
-  const qLower = qClean.toLowerCase();
-  
-  return dataArray.find(item => {
-    // 1. Cek No. Peserta / ID Registrasi (misal: TSR-001)
-    if (item.regId && item.regId.toLowerCase().trim() === qLower) return true;
-    // 2. Cek Kode Tiket Resmi (misal: CGC26-UNQC9Y)
-    if (item.ticketCode && item.ticketCode.toLowerCase().trim() === qLower) return true;
-    // 3. Cek Alamat Email
-    if (item.email && item.email.toLowerCase().trim() === qLower) return true;
-    // 4. Cek Nomor WhatsApp (fleksibel: 08xx, 628xx, 8xx, +62, spasi, dash)
-    if (item.noWa && isPhoneMatch(item.noWa, qClean)) return true;
-    // 5. Cek Nama Lengkap (Exact match atau nama diawali kata pencarian)
-    if (item.nama && (item.nama.toLowerCase().trim() === qLower || item.nama.toLowerCase().trim().startsWith(qLower))) return true;
-    return false;
-  });
-}
-
-// Helper Generator Kode Tiket Unik (misal: CGC26-UNQC9Y)
-function generateUniqueTicketCode(eventName) {
-  const year = new Date().getFullYear();
-  const randomChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let randomCode = "";
-  for (let i = 0; i < 6; i++) {
-    randomCode += randomChars.charAt(Math.floor(Math.random() * randomChars.length));
-  }
-  let prefix = (eventName || "CGC").split(/\s+/).map(w => w[0]).join('').replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase() || "EVT";
-  if (prefix.length < 2) prefix = "EVT";
-  return `${prefix}${String(year).slice(-2)}-${randomCode}`;
-}
-
-// Helper Generator No. Peserta Registrasi (Format: TSR-001, TSR-002, dst.)
-function generateParticipantRegId(existingArray) {
-  const nextNum = (existingArray ? existingArray.length : 0) + 1;
-  return `TSR-${String(nextNum).padStart(3, '0')}`;
-}
+// (Helper normalizePhone, isPhoneMatch, findParticipantByQuery, generateUniqueTicketCode,
+//  generateParticipantRegId kini di js/utils.js)
 
 // 4. Form Registrasi 6 Field & Generator QR Code
 function initRegistrationForm() {
@@ -359,6 +267,14 @@ function initRegistrationForm() {
 
     if (!nama || !email || !noWa || !namaToko || !domisili || !ukuranBaju) {
       alert("Mohon lengkapi seluruh field pendaftaran!");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      alert("Format email tidak valid. Contoh: nama@gmail.com");
+      return;
+    }
+    if (!isValidPhone(noWa)) {
+      alert("Nomor WhatsApp tidak valid. Gunakan 10-13 digit (contoh: 081234567890).");
       return;
     }
 
@@ -920,8 +836,9 @@ function initCheckStatusForm() {
         const text = await resp.text();
         const json = JSON.parse(text);
         if (json.status === 'success' && Array.isArray(json.data)) {
-          saveLocalData(json.data); // Cache ke lokal untuk query berikutnya
-          found = findParticipantByQuery(json.data, query);
+          const merged = mergeData(getLocalData(), json.data);
+           saveLocalData(merged); // Cache ke lokal untuk query berikutnya
+          found = findParticipantByQuery(merged, query);
         }
       } catch(e) {
         console.warn('[GAS getData fallback]', e);
@@ -972,151 +889,4 @@ function initCheckStatusForm() {
   });
 }
 
-// 7. Presensi Mandiri (Peserta Scan Poster Venue)
-let html5QrcodeScannerSelf = null;
-
-function initSelfPresensiScanner() {
-  const btnStart = document.getElementById('btn-start-self-scanner');
-  if (!btnStart) return;
-
-  btnStart.addEventListener('click', () => {
-    const regInput = document.getElementById('self-scan-reg-id').value.trim();
-    if (!regInput) {
-      alert("Masukkan No. Peserta / Kode Tiket / No WA Anda terlebih dahulu!");
-      return;
-    }
-
-    const scannerContainer = document.getElementById('self-scanner-wrapper');
-    scannerContainer.classList.remove('d-none');
-
-    if (html5QrcodeScannerSelf) {
-      html5QrcodeScannerSelf.clear();
-    }
-
-    html5QrcodeScannerSelf = new Html5QrcodeScanner("self-reader", { fps: 10, qrbox: 250 });
-    html5QrcodeScannerSelf.render((decodedText, decodedResult) => {
-      // Scanned QR Poster Venue
-      html5QrcodeScannerSelf.clear();
-      processSelfPresensi(regInput, decodedText);
-    }, (error) => {
-      // Scan failure silent
-    });
-  });
-}
-
-// Async: fallback ke GAS jika peserta tidak ada di localStorage lokal
-// Juga verifikasi statusBayar terbaru dari GAS sebelum tolak presensi
-async function processSelfPresensi(userQuery, qrDecoded) {
-  const resultContainer = document.getElementById('self-scan-result');
-  if (!resultContainer) return;
-
-  // Tampilkan loading selama proses pencarian
-  resultContainer.innerHTML = `
-    <div class="glass-panel mt-3 text-center" style="padding: 20px;">
-      <i class="ri-loader-4-line ri-spin" style="font-size: 1.6rem; color: var(--primary);"></i>
-      <p style="color: var(--text-muted); margin-top: 8px; font-size: 0.9rem;">Memverifikasi data peserta...</p>
-    </div>
-  `;
-
-  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
-
-  // Langkah 1: Cari di localStorage lokal
-  let localData = getLocalData();
-  let item = findParticipantByQuery(localData, userQuery);
-
-  // Langkah 2: Jika tidak ditemukan lokal → fetch dari GAS (peserta dari HP lain)
-  if (!item && !CONFIG.USE_MOCK_DATA && gasUrl) {
-    try {
-      const resp = await fetch(`${gasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
-      const json = JSON.parse(await resp.text());
-      if (json.status === 'success' && Array.isArray(json.data)) {
-        saveLocalData(json.data);
-        localData = json.data;
-        item = findParticipantByQuery(json.data, userQuery);
-      }
-    } catch(e) {
-      console.warn('[processSelfPresensi GAS fallback]', e);
-    }
-  }
-
-  if (!item) {
-    resultContainer.innerHTML = `
-      <div class="glass-panel mt-3 animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.12); padding: 22px;">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <i class="ri-error-warning-fill" style="font-size: 2rem; color: var(--accent-rose);"></i>
-          <div>
-            <h4 style="color: var(--accent-rose); margin: 0; font-size: 1.15rem;">Data Peserta Tidak Ditemukan!</h4>
-            <p class="mt-1" style="color: #cbd5e1; font-size: 0.9rem; margin: 4px 0 0 0;">
-              Nomor WA / No. Peserta / Kode Tiket <strong>${String(userQuery).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong> tidak terdaftar di sistem.
-            </p>
-          </div>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  // Langkah 3: Jika statusBayar lokal bukan LUNAS → verifikasi ke GAS
-  // (Antisipasi: admin sudah set LUNAS tapi cache peserta masih stale)
-  if (item.statusBayar !== 'LUNAS' && !CONFIG.USE_MOCK_DATA && gasUrl) {
-    try {
-      const resp = await fetch(`${gasUrl}?action=getData&t=${Date.now()}`, { redirect: 'follow' });
-      const json = JSON.parse(await resp.text());
-      if (json.status === 'success' && Array.isArray(json.data)) {
-        saveLocalData(json.data);
-        const freshItem = findParticipantByQuery(json.data, userQuery);
-        if (freshItem) item = freshItem; // Gunakan data terbaru dari GAS
-      }
-    } catch(e) {
-      console.warn('[processSelfPresensi statusBayar refresh]', e);
-    }
-  }
-
-  if (item.statusBayar !== 'LUNAS') {
-    resultContainer.innerHTML = `
-      <div class="glass-panel mt-2" style="border-color: var(--accent-rose);">
-        <h4 style="color: var(--accent-rose);"><i class="ri-error-warning-line"></i> Presensi Gagal - Pembayaran Belum Lunas</h4>
-        <p>Status pembayaran Anda saat ini: <strong>${item.statusBayar}</strong>. Silakan selesaikan pembayaran atau menuju ke Meja Registrasi Panitia.</p>
-      </div>
-    `;
-    return;
-  }
-
-  // Update status ke HADIR
-  const jamNow = new Date().toLocaleString('id-ID');
-  item.statusHadir = `HADIR (${jamNow})`;
-  saveLocalData(localData);
-
-  // Sync presensi mandiri ke Google Sheet via GAS
-  if (!CONFIG.USE_MOCK_DATA && gasUrl) {
-    fetch(gasUrl, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'presensi', regId: item.regId })
-    }).catch(err => console.error('[GAS presensi mandiri sync error]', err));
-  }
-
-  resultContainer.innerHTML = `
-    <div class="ticket-card animate-fadeIn" style="border-color: var(--accent-emerald);">
-      <div class="brand-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">
-        <i class="ri-checkbox-circle-fill"></i> PRESENSI MANDIRI BERHASIL!
-      </div>
-      <h3 class="mt-1" style="color: #fff;">SELAMAT DATANG ATAS NAMA ${item.nama.toUpperCase()}</h3>
-      
-      <div class="mt-2">
-        <span class="merch-size-badge">👕 UKURAN BAJU: ${item.ukuranBaju}</span>
-      </div>
-
-      <div class="ticket-info-grid mt-2">
-        <div><strong>No Registrasi:</strong> ${item.regId}</div>
-        <div><strong>Nama Toko:</strong> ${item.namaToko}</div>
-        <div><strong>Domisili:</strong> ${item.domisili}</div>
-        <div><strong>Waktu Presensi:</strong> ${jamNow}</div>
-      </div>
-      <p class="mt-2" style="color: #cbd5e1; font-size: 0.9rem;">
-        Silakan tunjukkan layar ini ke Meja Souvenir untuk mengambil Kaos Ukuran <strong>${item.ukuranBaju}</strong> &amp; Tiket Fisik No <strong>${item.regId}</strong>.
-      </p>
-    </div>
-  `;
-}
 

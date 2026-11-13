@@ -160,44 +160,6 @@ function initAdminTabs() {
   });
 }
 
-// Helper Normalisasi Nomor Telepon / WA (mendukung format 08xx, 628xx, 8xx, spasi, dash, +62)
-function normalizePhone(phoneStr) {
-  if (!phoneStr) return "";
-  let digits = String(phoneStr).replace(/\D/g, "");
-  if (digits.startsWith("62")) {
-    digits = "0" + digits.slice(2);
-  } else if (digits.startsWith("8")) {
-    digits = "0" + digits;
-  }
-  return digits;
-}
-
-function isPhoneMatch(phoneA, phoneB) {
-  const normA = normalizePhone(phoneA);
-  const normB = normalizePhone(phoneB);
-  if (!normA || !normB) return false;
-  return normA === normB;
-}
-
-function findParticipantByQuery(dataArray, query) {
-  if (!dataArray || !query) return null;
-  const qClean = String(query).trim();
-  const qLower = qClean.toLowerCase();
-
-  return dataArray.find(item => {
-    // 1. Cek No. Peserta / ID Registrasi (misal: TSR-001)
-    if (item.regId && item.regId.toLowerCase().trim() === qLower) return true;
-    // 2. Cek Kode Tiket Resmi (misal: CGC26-UNQC9Y)
-    if (item.ticketCode && item.ticketCode.toLowerCase().trim() === qLower) return true;
-    // 3. Cek Alamat Email
-    if (item.email && item.email.toLowerCase().trim() === qLower) return true;
-    // 4. Cek Nomor WhatsApp (fleksibel: 08xx, 628xx, 8xx, +62, spasi, dash)
-    if (item.noWa && isPhoneMatch(item.noWa, qClean)) return true;
-    // 5. Cek Nama Lengkap (Exact match atau nama diawali kata pencarian)
-    if (item.nama && (item.nama.toLowerCase().trim() === qLower || item.nama.toLowerCase().trim().startsWith(qLower))) return true;
-    return false;
-  });
-}
 
 // 4. Load & Render Tabel Live Data Peserta
 // Tampilkan dari localStorage dulu (instant), lalu fetch GAS di background untuk data terbaru
@@ -223,10 +185,11 @@ async function loadAdminTableData() {
 const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURIComponent(token)}&t=${Date.now()}`, { redirect: 'follow' });
         const text = await resp.text();
         const json = JSON.parse(text);
-        if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
-          // Merge: gabungkan OTS lokal dengan data GAS (GAS adalah source of truth)
-          saveLocalData(json.data);
-          data = json.data;
+        if (json.status === 'success' && Array.isArray(json.data)) {
+          // Merge: pertahankan record lokal yang belum sync, GAS sebagai source of truth untuk yang sudah ada
+          const merged = mergeData(getLocalData(), json.data);
+          saveLocalData(merged);
+          data = merged;
           renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
         }
       }
@@ -440,25 +403,6 @@ window.adminSetHadir = async function (regId) {
   }
 };
 
-// Helper Generator Kode Tiket Unik (misal: CGC26-UNQC9Y)
-function generateUniqueTicketCode(eventName) {
-  const year = new Date().getFullYear();
-  const randomChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let randomCode = "";
-  for (let i = 0; i < 6; i++) {
-    randomCode += randomChars.charAt(Math.floor(Math.random() * randomChars.length));
-  }
-  let prefix = (eventName || "CGC").split(/\s+/).map(w => w[0]).join('').replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase() || "EVT";
-  if (prefix.length < 2) prefix = "EVT";
-  return `${prefix}${String(year).slice(-2)}-${randomCode}`;
-}
-
-// Helper Generator No. Peserta Registrasi (Format: TSR-001, TSR-002, dst.)
-function generateParticipantRegId(existingArray) {
-  const nextNum = (existingArray ? existingArray.length : 0) + 1;
-  return `TSR-${String(nextNum).padStart(3, '0')}`;
-}
-
 // 5. Form Pendaftaran On-The-Spot / COD Panitia
 function initOTSForm() {
   const form = document.getElementById('ots-form');
@@ -476,6 +420,14 @@ function initOTSForm() {
 
     if (!nama || !noWa || !namaToko || !domisili || !ukuranBaju) {
       alert("Mohon lengkapi seluruh field pendaftaran OTS!");
+      return;
+    }
+    if (email && !isValidEmail(email)) {
+      alert("Format email tidak valid.");
+      return;
+    }
+    if (!isValidPhone(noWa)) {
+      alert("Nomor WhatsApp tidak valid.");
       return;
     }
 
@@ -613,15 +565,15 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           const text = await resp.text();
           const json = JSON.parse(text);
           if (json.status === 'success' && Array.isArray(json.data)) {
-            saveLocalData(json.data);
-            data = json.data;
-            item = findParticipantByQuery(json.data, searchKey);
-          }
-        } catch (e) {
-          console.warn('[processAdminScanResult GAS fallback]', e);
-        }
-      }
-
+             const merged = mergeData(getLocalData(), json.data);
+             saveLocalData(merged);
+             data = merged;
+             item = findParticipantByQuery(merged, searchKey);
+           }
+         } catch (e) {
+           console.warn('[processAdminScanResult GAS fallback]', e);
+         }
+       }
       if (!item) {
         resultDiv.innerHTML = `
       <div class="glass-panel mt-3 animate-fadeIn" style="border-color: var(--accent-rose); background: rgba(244, 63, 94, 0.12); padding: 22px;">
@@ -783,23 +735,23 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
             </div>
           `;
         }
-        try {
-          const customInfoKiosk = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-          const gasUrlKiosk = customInfoKiosk.gasApiUrl || CONFIG.GAS_API_URL;
-          if (gasUrlKiosk) {
-            const resp = await fetch(`${gasUrlKiosk}?action=getData&token=${encodeURIComponent(getAdminToken())}&t=${Date.now()}`, { redirect: 'follow' });
-            const text = await resp.text();
-            const json = JSON.parse(text);
-            if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
-              saveLocalData(json.data);
-              data = json.data;
-              item = findParticipantByQuery(json.data, searchKey);
-            }
-          }
-        } catch (e) {
-          console.warn('[Kiosk GAS lookup error]', e);
-        }
-      }
+         try {
+           const customInfoKiosk = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+           const gasUrlKiosk = customInfoKiosk.gasApiUrl || CONFIG.GAS_API_URL;
+           if (gasUrlKiosk) {
+             const resp = await fetch(`${gasUrlKiosk}?action=getData&token=${encodeURIComponent(getAdminToken())}&t=${Date.now()}`, { redirect: 'follow' });
+             const text = await resp.text();
+             const json = JSON.parse(text);
+             if (json.status === 'success' && Array.isArray(json.data) && json.data.length > 0) {
+               const merged = mergeData(getLocalData(), json.data);
+               saveLocalData(merged);
+               data = merged;
+               item = findParticipantByQuery(merged, searchKey);
+             }
+           }
+         } catch (e) {
+           console.warn('[Kiosk GAS lookup error]', e);
+         }
 
       if (!item) {
         if (kioskDisplay) {
@@ -899,7 +851,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
       const inputBankName = document.getElementById('set-bank-name');
       const inputBankAcc = document.getElementById('set-bank-acc');
       const inputBankHolder = document.getElementById('set-bank-holder');
-      const inputSelfPresensi = document.getElementById('set-self-presensi');
+      
       const inputDeadlineMode = document.getElementById('set-deadline-mode');
       const inputDeadlineDatetime = document.getElementById('set-deadline-datetime');
       const inputClosedMessage = document.getElementById('set-closed-message');
@@ -921,9 +873,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
       if (inputBankName) inputBankName.value = paymentInfo.bankName || CONFIG.PAYMENT_INFO.BANK_NAME;
       if (inputBankAcc) inputBankAcc.value = paymentInfo.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
       if (inputBankHolder) inputBankHolder.value = paymentInfo.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
-      if (inputSelfPresensi) {
-        inputSelfPresensi.value = (customInfo.selfPresensiEnabled === false || customInfo.selfPresensiEnabled === "false") ? "false" : "true";
-      }
+      
       if (inputDeadlineMode) {
         inputDeadlineMode.value = customInfo.deadlineMode || "unlimited";
         if (groupDeadlineDatetime) {
@@ -1020,9 +970,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
               if (inputBankName) inputBankName.value = cloudPayment.bankName || CONFIG.PAYMENT_INFO.BANK_NAME;
               if (inputBankAcc) inputBankAcc.value = cloudPayment.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
               if (inputBankHolder) inputBankHolder.value = cloudPayment.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
-              if (inputSelfPresensi) {
-                inputSelfPresensi.value = (cloud.selfPresensiEnabled === false || cloud.selfPresensiEnabled === "false") ? "false" : "true";
-              }
+              
               if (inputDeadlineMode) {
                 inputDeadlineMode.value = cloud.deadlineMode || "unlimited";
                 if (groupDeadlineDatetime) {
@@ -1055,7 +1003,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
         const bankName = (inputBankName ? inputBankName.value.trim() : "") || CONFIG.PAYMENT_INFO.BANK_NAME;
         const accountNumber = (inputBankAcc ? inputBankAcc.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
         const accountHolder = (inputBankHolder ? inputBankHolder.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
-        const selfPresensiEnabled = inputSelfPresensi ? inputSelfPresensi.value === "true" : true;
+        
         const deadlineMode = inputDeadlineMode ? inputDeadlineMode.value : "unlimited";
         const deadlineDateTime = inputDeadlineDatetime ? inputDeadlineDatetime.value : "";
         const closedMessage = inputClosedMessage ? inputClosedMessage.value.trim() : "";
@@ -1076,7 +1024,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           name,
           date,
           venue,
-          selfPresensiEnabled,
+          
           paymentInfo: savedPaymentInfo,
           deadlineMode,
           deadlineDateTime,
@@ -1535,3 +1483,4 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
       document.body.removeChild(a);
     };
 
+}
