@@ -73,10 +73,14 @@ window.testWaNotification = function () {
   }
   const text = "Test notifikasi WA dari Portal Admin Event.%0A%0AJika Anda menerima pesan ini, integrasi WA siap digunakan.";
   const url = "https://wa.me/" + num + "?text=" + text;
-  const w = window.open(url, "_blank");
-  if (!w) {
-    showToast("Popup diblokir browser. Izinkan popup untuk situs ini.", "error");
-  }
+  // Gunakan anchor click (lebih andal daripada window.open yang sering diblokir)
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 };
 
 // 1. Inisialisasi Auth Login (verifikasi ke backend GAS, token-based)
