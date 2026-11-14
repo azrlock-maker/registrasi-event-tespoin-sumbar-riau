@@ -214,6 +214,7 @@ function initTabNavigation() {
   const tabPanels = document.querySelectorAll('.tab-panel');
 
   tabBtns.forEach(btn => {
+    btn.setAttribute('role', 'tab');
     btn.addEventListener('click', () => {
       const targetId = btn.dataset.tab;
       
@@ -266,22 +267,22 @@ function initRegistrationForm() {
     const ukuranBaju = document.getElementById('reg-baju').value;
 
     if (!nama || !email || !noWa || !namaToko || !domisili || !ukuranBaju) {
-      alert("Mohon lengkapi seluruh field pendaftaran!");
+      showToast("Mohon lengkapi seluruh field pendaftaran!");
       return;
     }
     if (!isValidEmail(email)) {
-      alert("Format email tidak valid. Contoh: nama@gmail.com");
+      showToast("Format email tidak valid. Contoh: nama@gmail.com");
       return;
     }
     if (!isValidPhone(noWa)) {
-      alert("Nomor WhatsApp tidak valid. Gunakan 10-13 digit (contoh: 081234567890).");
+      showToast("Nomor WhatsApp tidak valid. Gunakan 10-13 digit (contoh: 081234567890).");
       return;
     }
 
     // Cek Batas Waktu Pendaftaran
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     if (isRegistrationClosed(customInfo)) {
-      alert("Mohon maaf, pendaftaran event saat ini telah resmi ditutup.");
+      showToast("Mohon maaf, pendaftaran event saat ini telah resmi ditutup.");
       initEventDetails();
       return;
     }
@@ -350,14 +351,14 @@ function initRegistrationForm() {
           renderTicketSuccess(savedData, 'reg-result-container');
           form.reset();
         } else if (resJson.status === "closed") {
-          alert("Pemberitahuan: " + (resJson.message || "Pendaftaran event saat ini telah resmi ditutup."));
+          showToast("Pemberitahuan: " + (resJson.message || "Pendaftaran event saat ini telah resmi ditutup."));
           initEventDetails();
         } else {
-          alert("Gagal melakukan pendaftaran: " + resJson.message);
+          showToast("Gagal melakukan pendaftaran: " + resJson.message);
         }
       } catch (err) {
         console.error(err);
-        alert("Terjadi kesalahan jaringan saat mengirim pendaftaran.");
+        showToast("Terjadi kesalahan jaringan saat mengirim pendaftaran.");
       }
     }
 
@@ -682,6 +683,21 @@ function initUploadForm() {
   const form = document.getElementById('upload-form');
   if (!form) return;
 
+  const fileInput = document.getElementById('upload-file');
+  const preview = document.getElementById('upload-preview');
+  if (fileInput && preview) {
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files && fileInput.files[0];
+      if (f) {
+        const url = URL.createObjectURL(f);
+        preview.src = url;
+        preview.classList.add('show');
+      } else {
+        preview.classList.remove('show');
+      }
+    });
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -689,7 +705,7 @@ function initUploadForm() {
     const fileInput = document.getElementById('upload-file');
 
     if (!regId || !fileInput.files || fileInput.files.length === 0) {
-      alert("Masukkan ID Registrasi / No. WA / Kode Tiket dan pilih foto bukti transfer!");
+      showToast("Masukkan ID Registrasi / No. WA / Kode Tiket dan pilih foto bukti transfer!");
       return;
     }
 
@@ -698,6 +714,12 @@ function initUploadForm() {
     btnSubmit.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Mengunggah Struk...`;
 
     const file = fileInput.files[0];
+    if (file.size > 2 * 1024 * 1024) {
+      showToast("Ukuran file terlalu besar (maks 2MB).", "error");
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = `<i class="ri-upload-cloud-line"></i> Unggah Bukti Transfer`;
+      return;
+    }
     const reader = new FileReader();
 
     reader.onload = async function(event) {
@@ -716,7 +738,7 @@ function initUploadForm() {
           showUploadSuccessMessage(item);
           form.reset();
         } else {
-          alert("ID Registrasi / Nomor WA / Kode Tiket tidak ditemukan. Mohon periksa kembali!");
+          showToast("ID Registrasi / Nomor WA / Kode Tiket tidak ditemukan. Mohon periksa kembali!");
         }
       } else {
         // Send to GAS (Mendukung Konfigurasi Dinamis dari Admin)
@@ -739,11 +761,11 @@ function initUploadForm() {
             showUploadSuccessMessage(json.data);
             form.reset();
           } else {
-            alert("Gagal mengunggah bukti: " + json.message);
+            showToast("Gagal mengunggah bukti: " + json.message);
           }
         } catch (err) {
           console.error(err);
-          alert("Terjadi kesalahan koneksi saat upload.");
+          showToast("Terjadi kesalahan koneksi saat upload.");
         }
       }
 

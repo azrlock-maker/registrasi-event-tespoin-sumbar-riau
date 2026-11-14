@@ -16,6 +16,19 @@ document.addEventListener('DOMContentLoaded', () => {
   initAdminScanner();
   initKioskScanner();
   initEventSettings();
+  // ESC to close modals
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const resetModal = document.getElementById('reset-confirm-modal');
+      const ticketModal = document.getElementById('admin-ticket-modal');
+      if (resetModal && resetModal.style.display !== 'none' && !resetModal.classList.contains('d-none')) {
+        closeResetModal();
+      }
+      if (ticketModal && ticketModal.style.display !== 'none' && !ticketModal.classList.contains('d-none')) {
+        closeAdminTicketModal();
+      }
+    }
+  });
 });
 
 // Helper Get Data
@@ -94,11 +107,11 @@ function initAdminAuth() {
           applyRolePermissions(json.role);
           loadAdminTableData();
         } else {
-          alert(json.message || "Username atau Password salah!");
+          showToast(json.message || "Username atau Password salah!");
         }
       } catch (err) {
         console.error(err);
-        alert("Gagal terhubung ke server. Periksa koneksi / URL GAS.");
+        showToast("Gagal terhubung ke server. Periksa koneksi / URL GAS.");
       } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-login-box-line"></i> Masuk Ke Portal'; }
       }
@@ -143,6 +156,7 @@ function initAdminTabs() {
   const tabPanels = document.querySelectorAll('.admin-tab-panel');
 
   tabBtns.forEach(btn => {
+    btn.setAttribute('role', 'tab');
     btn.addEventListener('click', () => {
       const targetId = btn.dataset.tab;
 
@@ -336,7 +350,7 @@ window.refreshAdminData = async function () {
 };
 
 window.adminSetLunas = async function (regId) {
-  if (!confirm(`Konfirmasi setujui LUNAS untuk ${regId}?`)) return;
+  if (!await showConfirm(`Konfirmasi setujui LUNAS untuk ${regId}?`)) return;
 
   const data = getLocalData();
   const item = data.find(i => i.regId === regId);
@@ -366,7 +380,7 @@ window.adminSetLunas = async function (regId) {
       }
     }
 
-    alert(`Status ${regId} berhasil diubah menjadi LUNAS!`);
+    showToast(`Status ${regId} berhasil diubah menjadi LUNAS!`);
   }
 };
 
@@ -399,7 +413,7 @@ window.adminSetHadir = async function (regId) {
       }
     }
 
-    alert(`Status presensi ${item.nama} (${regId}) berhasil diubah menjadi HADIR!`);
+    showToast(`Status presensi ${item.nama} (${regId}) berhasil diubah menjadi HADIR!`);
   }
 };
 
@@ -419,15 +433,15 @@ function initOTSForm() {
     const ukuranBaju = document.getElementById('ots-baju').value;
 
     if (!nama || !noWa || !namaToko || !domisili || !ukuranBaju) {
-      alert("Mohon lengkapi seluruh field pendaftaran OTS!");
+      showToast("Mohon lengkapi seluruh field pendaftaran OTS!");
       return;
     }
     if (email && !isValidEmail(email)) {
-      alert("Format email tidak valid.");
+      showToast("Format email tidak valid.");
       return;
     }
     if (!isValidPhone(noWa)) {
-      alert("Nomor WhatsApp tidak valid.");
+      showToast("Nomor WhatsApp tidak valid.");
       return;
     }
 
@@ -487,7 +501,7 @@ function initOTSForm() {
       }
     }
 
-    alert(`Pendaftaran COD/OTS Berhasil!\nNo. Peserta: ${newRegId}\nKode Tiket: ${newTicketCode}`);
+    showToast(`Pendaftaran COD/OTS Berhasil!\nNo. Peserta: ${newRegId}\nKode Tiket: ${newTicketCode}`);
     form.reset();
     loadAdminTableData();
 
@@ -1153,7 +1167,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           btnSave.disabled = false;
           btnSave.innerHTML = originalBtnText || '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event';
         }
-        alert("⚠️ Gagal menyimpan! Ukuran gambar poster terlalu besar.\n\nCoba gunakan gambar poster dengan resolusi lebih kecil, atau masukkan Link/URL gambar online pada kolom di bawahnya.");
+        showToast("⚠️ Gagal menyimpan! Ukuran gambar poster terlalu besar.\n\nCoba gunakan gambar poster dengan resolusi lebih kecil, atau masukkan Link/URL gambar online pada kolom di bawahnya.");
         console.error("localStorage save error:", err);
         return;
       }
@@ -1174,14 +1188,14 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           .then(res => res.json())
           .then(json => {
             if (json.status === "success") {
-              alert("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (Google) — Perubahan sudah aktif dan dapat diakses dari browser/HP mana pun.");
+              showToast("🎉 Pengaturan Event berhasil disimpan!\n\n✅ Tersimpan di cloud (Google) — Perubahan sudah aktif dan dapat diakses dari browser/HP mana pun.");
             } else {
-              alert("⚠️ Tersimpan di perangkat ini, tapi gagal sinkronisasi ke cloud:\n" + json.message + "\n\nPastikan URL GAS sudah benar di kolom Integrasi Google.");
+              showToast("⚠️ Tersimpan di perangkat ini, tapi gagal sinkronisasi ke cloud:\n" + json.message + "\n\nPastikan URL GAS sudah benar di kolom Integrasi Google.");
             }
           })
           .catch(err => {
             console.error("GAS saveSettings error:", err);
-            alert("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud Google.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
+            showToast("⚠️ Pengaturan tersimpan di perangkat ini, tapi gagal terhubung ke server cloud Google.\n\nPerubahan hanya tampil di browser ini. Periksa koneksi internet atau URL GAS di kolom Integrasi Google.");
           })
           .finally(() => {
             if (btnSave) {
@@ -1194,7 +1208,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           btnSave.disabled = false;
           btnSave.innerHTML = originalBtnText || '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event';
         }
-        alert("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
+        showToast("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
       }
     }
 
@@ -1237,7 +1251,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
         }
       }
 
-      alert("🎉 Seluruh data event berhasil dikosongkan!\n\nDatabase pendaftaran kini bersih (0 peserta) dan siap digunakan untuk event baru.");
+      showToast("🎉 Seluruh data event berhasil dikosongkan!\n\nDatabase pendaftaran kini bersih (0 peserta) dan siap digunakan untuk event baru.");
     };
 
     // 9. Modal Preview & Download E-Tiket Resmi dari Portal Admin

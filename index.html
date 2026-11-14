@@ -63,7 +63,7 @@
     </script>
 
     <!-- Navigation Tabs -->
-    <nav class="tab-navigation">
+    <nav class="tab-navigation" role="tablist" aria-label="Navigasi tab peserta">
       <button class="tab-btn active" data-tab="panel-register">
         <i class="ri-edit-box-line"></i> Form Pendaftaran
       </button>
@@ -173,6 +173,7 @@
           <div class="form-group mt-2">
             <label for="upload-file">Upload Foto / Berkas Struk Transfer <span class="required-star">*</span></label>
             <input type="file" id="upload-file" accept="image/*" required>
+            <img id="upload-preview" class="upload-preview" alt="Preview struk">
           </div>
 
           <div class="mt-3">

@@ -108,3 +108,73 @@ function isValidPhone(phone) {
   const n = normalizePhone(phone);
   return n.length >= 10 && n.length <= 13;
 }
+
+// ===== Toast Notifications =====
+function ensureToastContainer() {
+  let c = document.getElementById('toast-container');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = 'toast-container';
+    c.className = 'toast-container';
+    document.body.appendChild(c);
+  }
+  return c;
+}
+
+function showToast(message, type) {
+  if (!type) {
+    const m = String(message || "").toLowerCase();
+    if (/gagal|salah|error|tidak|maaf|invalid|terlalu/.test(m)) type = 'error';
+    else if (/berhasil|sukses|tersimpan|terbit|diterima/.test(m)) type = 'success';
+    else if (/peringatan|warning/.test(m)) type = 'warning';
+    else type = 'info';
+  }
+  const c = ensureToastContainer();
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.setAttribute('role', 'status');
+  t.setAttribute('aria-live', 'polite');
+  const icon = type === 'success' ? 'ri-checkbox-circle-line' :
+               type === 'error' ? 'ri-error-warning-line' :
+               type === 'warning' ? 'ri-alert-line' : 'ri-information-line';
+  t.innerHTML = `<i class="${icon}"></i><span>${escapeHtml(message)}</span>`;
+  c.appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transition = 'opacity 0.3s';
+    setTimeout(() => t.remove(), 300);
+  }, 3500);
+}
+
+// ===== Confirm Modal (returns Promise<boolean>) =====
+function showConfirm(message) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML = `
+      <div class="confirm-modal-box">
+        <p>${escapeHtml(message)}</p>
+        <div class="confirm-modal-actions">
+          <button class="btn btn-secondary" data-action="cancel">Batal</button>
+          <button class="btn btn-primary" data-action="ok">Ya, Lanjutkan</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const okBtn = overlay.querySelector('[data-action="ok"]');
+    const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+    function close(result) {
+      overlay.remove();
+      resolve(result);
+    }
+    okBtn.addEventListener('click', () => close(true));
+    cancelBtn.addEventListener('click', () => close(false));
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(false); });
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', esc); close(false); }
+    });
+    okBtn.focus();
+  });
+}
