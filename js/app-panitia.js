@@ -952,7 +952,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
 
       // Isi data Integrasi Google
       if (inputAdminEmail) inputAdminEmail.value = customInfo.adminEmail || CONFIG.ADMIN_EMAIL || "";
-       if (inputWaPanitia) inputWaPanitia.value = customInfo.waPanitiaNumber || "";
+       if (inputWaPanitia) inputWaPanitia.value = toWaInternational(customInfo.waPanitiaNumber || "");
       if (inputDriveFolder) inputDriveFolder.value = customInfo.driveFolder || "Bukti_Transfer_Event";
       if (inputGasUrl) inputGasUrl.value = customInfo.gasApiUrl || CONFIG.GAS_API_URL || "";
       if (inputSheetUrl) inputSheetUrl.value = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
@@ -997,7 +997,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
               }
               if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || "";
               if (inputAdminEmail) inputAdminEmail.value = cloud.adminEmail || "";
-               if (inputWaPanitia) inputWaPanitia.value = cloud.waPanitiaNumber || "";
+               if (inputWaPanitia) inputWaPanitia.value = toWaInternational(cloud.waPanitiaNumber || "");
               if (inputDriveFolder) inputDriveFolder.value = cloud.driveFolder || "Bukti_Transfer_Event";
               if (inputGasUrl) inputGasUrl.value = cloud.gasApiUrl || CONFIG.GAS_API_URL || "";
               if (inputSheetUrl) inputSheetUrl.value = cloud.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
@@ -1007,7 +1007,20 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           .catch(err => console.warn('[Admin getSettings sync error]', err));
       }
 
-      form.addEventListener('submit', (e) => {
+      const btnTestWa = document.getElementById('btn-test-wa');
+       if (btnTestWa) {
+         btnTestWa.addEventListener('click', () => {
+           const num = toWaInternational(inputWaPanitia ? inputWaPanitia.value.trim() : "");
+           if (!num) {
+             showToast("Isi nomor WA panitia terlebih dahulu.", "warning");
+             return;
+           }
+           const text = "Test notifikasi WA dari Portal Admin Event.%0A%0AJika Anda menerima pesan ini, integrasi WA siap digunakan.";
+           window.open(`https://wa.me/${num}?text=${text}`, '_blank');
+         });
+       }
+
+       form.addEventListener('submit', (e) => {
         e.preventDefault();
 
         const name = inputName.value.trim();
@@ -1023,7 +1036,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
         const closedMessage = inputClosedMessage ? inputClosedMessage.value.trim() : "";
 
         const adminEmail = inputAdminEmail ? inputAdminEmail.value.trim() : "";
-         const waPanitiaNumber = inputWaPanitia ? inputWaPanitia.value.trim() : "";
+         const waPanitiaNumber = toWaInternational(inputWaPanitia ? inputWaPanitia.value.trim() : "");
         const driveFolder = inputDriveFolder ? inputDriveFolder.value.trim() : "";
         const gasApiUrl = inputGasUrl ? inputGasUrl.value.trim() : "";
         const sheetUrl = inputSheetUrl ? inputSheetUrl.value.trim() : "";

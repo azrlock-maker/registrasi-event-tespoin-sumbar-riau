@@ -109,6 +109,15 @@ function isValidPhone(phone) {
   return n.length >= 10 && n.length <= 13;
 }
 
+// Konversi nomor WA ke format internasional (62xxx) untuk link wa.me
+function toWaInternational(phone) {
+  const n = normalizePhone(phone);
+  if (!n) return "";
+  if (n.startsWith("0")) return "62" + n.slice(1);
+  if (n.startsWith("62")) return n;
+  return "62" + n;
+}
+
 // ===== Toast Notifications =====
 function ensureToastContainer() {
   let c = document.getElementById('toast-container');

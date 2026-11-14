@@ -789,7 +789,7 @@ function showUploadSuccessMessage(item) {
   const urlBukti = (item && item.urlBukti) ? item.urlBukti : "";
 
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-  const waPanitia = (customInfo.waPanitiaNumber || "").replace(/\D/g, "");
+  const waPanitia = toWaInternational(customInfo.waPanitiaNumber || "");
   let waButtonHtml = "";
   if (waPanitia) {
     const text = `Halo Panitia, bukti transfer baru:%0A%0ANama: ${encodeURIComponent(participantName)}%0ANo. Peserta: ${encodeURIComponent(participantRegId)}%0AKode Tiket: ${encodeURIComponent(ticketCode)}%0ANo WA: ${encodeURIComponent(noWa)}%0AUkuran Baju: ${encodeURIComponent(ukuranBaju)}%0A%0ALink Bukti Transfer: ${encodeURIComponent(urlBukti)}%0A%0AMohon verifikasi. Terima kasih.`;
@@ -816,6 +816,7 @@ function showUploadSuccessMessage(item) {
         <span class="badge badge-warning">Status: Menunggu Verifikasi Panitia</span>
       </div>
       ${waButtonHtml}
+      ${!waPanitia ? '<p style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;">Notifikasi WA belum diatur oleh panitia. Hubungi panitia via email/telepon.</p>' : ''}
     </div>
   `;
   container.scrollIntoView({ behavior: 'smooth' });
