@@ -11,6 +11,12 @@ console.log("%c⚡ Event Registration System | Crafted & Developed by radh29", "
 document.addEventListener('DOMContentLoaded', () => {
   initAdminAuth();
   initAdminTabs();
+  // Event selector change
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'admin-event-selector') {
+      switchAdminEvent(e.target.value);
+    }
+  });
   initGoogleSheetButton();
   initOTSForm();
   initAdminScanner();
@@ -64,6 +70,223 @@ function getAdminToken() {
   return sessionStorage.getItem('ADMIN_TOKEN') || "";
 }
 
+let currentAdminEventId = localStorage.getItem('CURRENT_ADMIN_EVENT_ID') || "";
+
+async function loadAdminEvents() {
+  const sel = document.getElementById('admin-event-selector');
+  if (!sel) return;
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(`${gasUrl}?action=getEvents&token=${encodeURIComponent(token)}`, { redirect: 'follow' });
+    const json = await resp.json();
+    if (json.status === 'success' && Array.isArray(json.data)) {
+      sel.innerHTML = '';
+      json.data.forEach(ev => {
+        const opt = document.createElement('option');
+        opt.value = ev.eventId;
+        opt.textContent = ev.name + (ev.active ? ' (Aktif)' : '');
+        if (ev.eventId === currentAdminEventId || (!currentAdminEventId && ev.active)) {
+          opt.selected = true;
+          currentAdminEventId = ev.eventId;
+        }
+        sel.appendChild(opt);
+      });
+      if (!currentAdminEventId && json.data.length > 0) {
+        currentAdminEventId = json.data[0].eventId;
+        sel.value = currentAdminEventId;
+      }
+      localStorage.setItem('CURRENT_ADMIN_EVENT_ID', currentAdminEventId);
+      renderAdminEventsList();
+      // Load settings for current event
+      await loadAdminEventSettings(currentAdminEventId);
+      loadAdminTableData();
+    }
+  } catch (e) {
+    console.warn('[loadAdminEvents]', e);
+    sel.innerHTML = '<option value="">Gagal memuat event</option>';
+  }
+}
+
+async function renderAdminEventsList() {
+  const tbody = document.getElementById('admin-events-body');
+  if (!tbody) return;
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(`${gasUrl}?action=getEvents&token=${encodeURIComponent(token)}`, { redirect: 'follow' });
+    const json = await resp.json();
+    if (json.status === 'success' && Array.isArray(json.data)) {
+      tbody.innerHTML = '';
+      if (json.data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color:var(--text-muted); padding:20px;">Belum ada event.</td></tr>';
+        return;
+      }
+      json.data.forEach(ev => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong style="color:var(--accent-cyan); font-family:monospace;">${escapeHtml(ev.eventId)}</strong></td>
+          <td>${escapeHtml(ev.name)}</td>
+          <td>${escapeHtml(ev.date || '-')}</td>
+          <td>${escapeHtml(ev.venue || '-')}</td>
+          <td>${ev.active ? '<span class="badge badge-success">AKTIF</span>' : '<span class="badge badge-warning">Nonaktif</span>'}</td>
+          <td>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              ${!ev.active ? `<button class="btn btn-emerald" style="padding:4px 8px; font-size:0.75rem;" onclick="setActiveAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-check-line"></i> Aktifkan</button>` : ''}
+              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-edit-line"></i> Edit</button>
+              <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; background:linear-gradient(135deg,#f43f5e,#e11d48);" onclick="deleteAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-delete-bin-line"></i> Hapus</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    console.warn('[renderAdminEventsList]', e);
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color:var(--accent-rose); padding:20px;">Gagal memuat event.</td></tr>';
+  }
+}
+
+window.createNewEvent = async function () {
+  const name = prompt("Nama event baru:");
+  if (!name || !name.trim()) return;
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  const eventId = "EVT" + Date.now().toString().slice(-6);
+  try {
+    const resp = await fetch(gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'saveEvent',
+        event: { eventId: eventId, name: name.trim(), date: '', venue: '', paymentInfo: {} },
+        token: token
+      })
+    });
+    const json = await resp.json();
+    if (json.status === 'success') {
+      showToast("Event baru dibuat: " + name, "success");
+      await switchAdminEvent(eventId);
+      renderAdminEventsList();
+    } else {
+      showToast(json.message || "Gagal membuat event", "error");
+    }
+  } catch (e) {
+    console.error(e);
+    showToast("Gagal terhubung ke server", "error");
+  }
+};
+
+window.deleteAdminEvent = async function (eventId) {
+  if (eventId === currentAdminEventId) {
+    showToast("Tidak bisa menghapus event yang sedang aktif. Pilih event lain dulu.", "warning");
+    return;
+  }
+  if (!await showConfirm("Hapus event " + eventId + "? Data peserta event ini juga akan terhapus.")) return;
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'deleteEvent', eventId: eventId, token: token })
+    });
+    const json = await resp.json();
+    if (json.status === 'success') {
+      showToast("Event dihapus", "success");
+      renderAdminEventsList();
+    } else {
+      showToast(json.message || "Gagal menghapus", "error");
+    }
+  } catch (e) {
+    showToast("Gagal terhubung ke server", "error");
+  }
+};
+
+window.setActiveAdminEvent = async function (eventId) {
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(gasUrl, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'setActiveEvent', eventId: eventId, token: token })
+    });
+    const json = await resp.json();
+    if (json.status === 'success') {
+      showToast("Event aktif diperbarui", "success");
+      renderAdminEventsList();
+    } else {
+      showToast(json.message || "Gagal", "error");
+    }
+  } catch (e) {
+    showToast("Gagal terhubung ke server", "error");
+  }
+};
+
+async function loadAdminEventSettings(eventId) {
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(`${gasUrl}?action=getSettings&eventId=${encodeURIComponent(eventId)}`, { redirect: 'follow' });
+    const json = await resp.json();
+    if (json.status === 'success' && json.settings) {
+      const cloud = json.settings;
+      localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloud));
+      // populate form
+      const inputName = document.getElementById('set-event-name');
+      const inputDate = document.getElementById('set-event-date');
+      const inputVenue = document.getElementById('set-event-venue');
+      const inputPosterUrl = document.getElementById('set-poster-url');
+      const inputBankName = document.getElementById('set-bank-name');
+      const inputBankAcc = document.getElementById('set-bank-acc');
+      const inputBankHolder = document.getElementById('set-bank-holder');
+      const inputDeadlineMode = document.getElementById('set-deadline-mode');
+      const inputDeadlineDatetime = document.getElementById('set-deadline-datetime');
+      const inputClosedMessage = document.getElementById('set-closed-message');
+      const inputAdminEmail = document.getElementById('set-admin-email');
+      const inputWaPanitia = document.getElementById('set-wa-panitia');
+      const inputDriveFolder = document.getElementById('set-drive-folder');
+      const inputGasUrl = document.getElementById('set-gas-url');
+      const inputSheetUrl = document.getElementById('set-sheet-url');
+      const groupDeadlineDatetime = document.getElementById('group-deadline-datetime');
+      if (inputName) inputName.value = cloud.name || '';
+      if (inputDate) inputDate.value = cloud.date || '';
+      if (inputVenue) inputVenue.value = cloud.venue || '';
+      if (inputPosterUrl) inputPosterUrl.value = cloud.posterUrl || '';
+      const pi = cloud.paymentInfo || {};
+      if (inputBankName) inputBankName.value = pi.bankName || '';
+      if (inputBankAcc) inputBankAcc.value = pi.accountNumber || '';
+      if (inputBankHolder) inputBankHolder.value = pi.accountHolder || '';
+      if (inputAdminEmail) inputAdminEmail.value = cloud.adminEmail || '';
+      if (inputWaPanitia) inputWaPanitia.value = toWaInternational(cloud.waPanitiaNumber || '');
+      if (inputDriveFolder) inputDriveFolder.value = cloud.driveFolder || '';
+      if (inputGasUrl) inputGasUrl.value = cloud.gasApiUrl || '';
+      if (inputSheetUrl) inputSheetUrl.value = cloud.sheetUrl || '';
+      if (inputDeadlineMode) {
+        inputDeadlineMode.value = cloud.deadlineMode || 'unlimited';
+        if (groupDeadlineDatetime) groupDeadlineDatetime.style.display = inputDeadlineMode.value === 'datetime' ? 'block' : 'none';
+      }
+      if (inputDeadlineDatetime) inputDeadlineDatetime.value = cloud.deadlineDateTime || '';
+      if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || '';
+    }
+  } catch (e) {
+    console.warn('[loadAdminEventSettings]', e);
+  }
+}
+
+window.switchAdminEvent = async function (eventId) {
+  if (!eventId) return;
+  currentAdminEventId = eventId;
+  localStorage.setItem('CURRENT_ADMIN_EVENT_ID', eventId);
+  await loadAdminEventSettings(eventId);
+  loadAdminTableData();
+  renderAdminEventsList();
+};
+
 window.testWaNotification = function () {
   const input = document.getElementById('set-wa-panitia');
   const num = toWaInternational(input ? input.value.trim() : "");
@@ -95,7 +318,7 @@ function initAdminAuth() {
     if (loginPanel) loginPanel.classList.add('d-none');
     if (dashboardPanel) dashboardPanel.classList.remove('d-none');
     applyRolePermissions(savedRole);
-    loadAdminTableData();
+    loadAdminEvents();
     return;
   }
 
@@ -124,7 +347,7 @@ function initAdminAuth() {
           if (loginPanel) loginPanel.classList.add('d-none');
           if (dashboardPanel) dashboardPanel.classList.remove('d-none');
           applyRolePermissions(json.role);
-          loadAdminTableData();
+          loadAdminEvents();
         } else {
           showToast(json.message || "Username atau Password salah!");
         }
@@ -215,7 +438,8 @@ async function loadAdminTableData() {
       const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
       if (targetGasUrl) {
         const token = getAdminToken();
-const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURIComponent(token)}&t=${Date.now()}`, { redirect: 'follow' });
+const eid = currentAdminEventId || "";
+        const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURIComponent(token)}${eid ? `&eventId=${encodeURIComponent(eid)}` : ""}&t=${Date.now()}`, { redirect: 'follow' });
         const text = await resp.text();
         const json = JSON.parse(text);
         if (json.status === 'success' && Array.isArray(json.data)) {
@@ -594,7 +818,7 @@ async function processAdminScanResult(qrText) {
           const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
           const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
           const token = getAdminToken();
-const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURIComponent(token)}&t=${Date.now()}`, { redirect: 'follow' });
+         const resp = await fetch(targetGasUrl + "?action=getData&token=" + encodeURIComponent(getAdminToken()) + "&t=" + Date.now(), { redirect: 'follow' });
           const text = await resp.text();
           const json = JSON.parse(text);
           if (json.status === 'success' && Array.isArray(json.data)) {
@@ -1058,6 +1282,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
         const adminEmail = inputAdminEmail ? inputAdminEmail.value.trim() : "";
          const waPanitiaNumber = toWaInternational(inputWaPanitia ? inputWaPanitia.value.trim() : "");
         const driveFolder = inputDriveFolder ? inputDriveFolder.value.trim() : "";
+         const eventIdForSave = currentAdminEventId || "";
         const gasApiUrl = inputGasUrl ? inputGasUrl.value.trim() : "";
         const sheetUrl = inputSheetUrl ? inputSheetUrl.value.trim() : "";
 
@@ -1079,6 +1304,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
           adminEmail,
            waPanitiaNumber,
           driveFolder,
+           eventId: eventIdForSave,
           gasApiUrl,
           sheetUrl
         };

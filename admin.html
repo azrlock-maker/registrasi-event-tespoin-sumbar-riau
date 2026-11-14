@@ -60,8 +60,10 @@
           <h1 class="site-title" style="font-size: 1.8rem;">REKAP DATA & PRESENSI HARI-H</h1>
         </div>
 
-        <div style="display: flex; gap: 10px;">
-          <!-- Tombol Direct Link Buka Google Sheets -->
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <select id="admin-event-selector" style="padding:8px 12px; border-radius:8px; background:rgba(15,23,42,0.6); color:#fff; border:1px solid rgba(255,255,255,0.15);">
+            <option value="">Memuat event...</option>
+          </select>
           <a id="btn-open-sheet" href="#" target="_blank" class="btn btn-emerald">
             <i class="ri-file-excel-line"></i> 🟢 Buka Google Sheets Data
           </a>
@@ -287,7 +289,37 @@
 
       <!-- TAB 4: PENGATURAN POSTER EVENT & RESET DATA -->
       <section id="panel-settings" class="admin-tab-panel">
-        <!-- CARD 1: PENGATURAN POSTER & INFO EVENT -->
+        <!-- CARD 0: KELOLA EVENT (MULTI-EVENT) -->
+         <div class="glass-panel">
+           <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+             <div>
+               <h2 class="panel-title"><i class="ri-calendar-event-line" style="color: var(--accent-cyan);"></i> Kelola Event</h2>
+               <p class="panel-subtitle">Buat, pilih, aktifkan, atau hapus event. Event aktif tampil di web peserta secara default.</p>
+             </div>
+             <button class="btn btn-primary" onclick="createNewEvent()">
+               <i class="ri-add-line"></i> Tambah Event Baru
+             </button>
+           </div>
+           <div class="table-responsive">
+             <table class="admin-table">
+               <thead>
+                 <tr>
+                   <th>Event ID</th>
+                   <th>Nama Event</th>
+                   <th>Tanggal</th>
+                   <th>Venue</th>
+                   <th>Status</th>
+                   <th>Aksi</th>
+                 </tr>
+               </thead>
+               <tbody id="admin-events-body">
+                 <tr><td colspan="6" class="text-center" style="color:var(--text-muted); padding:20px;">Memuat event...</td></tr>
+               </tbody>
+             </table>
+           </div>
+         </div>
+
+         <!-- CARD 1: PENGATURAN POSTER & INFO EVENT -->
         <div class="glass-panel">
           <div class="panel-header">
             <h2 class="panel-title"><i class="ri-image-edit-line" style="color: var(--accent-cyan);"></i> Pengaturan

@@ -83,6 +83,17 @@ function isRegistrationClosed(customInfo) {
 
 // 1. Inisialisasi Info Event dari Config / Custom Admin Settings
 // Urutan prioritas: GAS Cloud > localStorage cache > CONFIG default
+// Helper: ambil eventId dari URL (?event=EVTxxx) atau localStorage
+function getCurrentEventId() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get('event');
+  if (fromUrl) {
+    localStorage.setItem('CURRENT_EVENT_ID', fromUrl);
+    return fromUrl;
+  }
+  return localStorage.getItem('CURRENT_EVENT_ID') || "";
+}
+
 function initEventDetails() {
   // Langkah 1: Tampilkan dari localStorage/CONFIG dulu (instant, tidak ada loading)
   applyEventDetailsToUI();
@@ -94,7 +105,9 @@ function initEventDetails() {
   if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
     // Cache buster (?t=...) agar GAS tidak mengembalikan respons lama yang ter-cache
     const cacheBuster = Date.now();
-    fetch(`${targetGasUrl}?action=getSettings&t=${cacheBuster}`, {
+    const eid = getCurrentEventId();
+    const eidParam = eid ? `&eventId=${encodeURIComponent(eid)}` : "";
+    fetch(`${targetGasUrl}?action=getSettings${eidParam}&t=${cacheBuster}`, {
       method: 'GET',
       redirect: 'follow'  // GAS selalu redirect sebelum merespons — wajib follow
     })
@@ -308,6 +321,7 @@ function initRegistrationForm() {
     const newRegId = generateParticipantRegId(localData);
     const newTicketCode = generateUniqueTicketCode(currentEventName);
 
+    const customInfoReg = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     const newRecord = {
       timestamp: new Date().toLocaleString('id-ID'),
       regId: newRegId,
@@ -321,7 +335,8 @@ function initRegistrationForm() {
       statusTransfer: "Belum Upload",
       urlBukti: "-",
       statusBayar: "BELUM LUNAS",
-      statusHadir: "BELUM HADIR"
+      statusHadir: "BELUM HADIR",
+      eventId: getCurrentEventId() || customInfoReg.eventId || ""
     };
 
     if (CONFIG.USE_MOCK_DATA) {
@@ -380,7 +395,8 @@ async function checkDuplicateRegistration(email, noWa) {
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
     try {
-      const url = `${targetGasUrl}?action=checkDuplicate&email=${encodeURIComponent(email)}&noWa=${encodeURIComponent(noWa)}`;
+      const eid = getCurrentEventId() || (JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}').eventId || "");
+       const url = `${targetGasUrl}?action=checkDuplicate&email=${encodeURIComponent(email)}&noWa=${encodeURIComponent(noWa)}${eid ? `&eventId=${encodeURIComponent(eid)}` : ""}`;
       const resp = await fetch(url);
       const json = await resp.json();
       return { exists: json.exists, existingData: json.data };
@@ -855,7 +871,8 @@ function initCheckStatusForm() {
         const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
         const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
         const cacheBuster = Date.now();
-        const resp = await fetch(`${targetGasUrl}?action=getData&t=${cacheBuster}`, { redirect: 'follow' });
+        const eid = getCurrentEventId() || (JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}').eventId || "");
+         const resp = await fetch(`${targetGasUrl}?action=getData${eid ? `&eventId=${encodeURIComponent(eid)}` : ""}&t=${cacheBuster}`, { redirect: 'follow' });
         const text = await resp.text();
         const json = JSON.parse(text);
         if (json.status === 'success' && Array.isArray(json.data)) {
