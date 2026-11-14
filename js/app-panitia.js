@@ -64,6 +64,21 @@ function getAdminToken() {
   return sessionStorage.getItem('ADMIN_TOKEN') || "";
 }
 
+window.testWaNotification = function () {
+  const input = document.getElementById('set-wa-panitia');
+  const num = toWaInternational(input ? input.value.trim() : "");
+  if (!num) {
+    showToast("Isi nomor WA panitia terlebih dahulu.", "warning");
+    return;
+  }
+  const text = "Test notifikasi WA dari Portal Admin Event.%0A%0AJika Anda menerima pesan ini, integrasi WA siap digunakan.";
+  const url = "https://wa.me/" + num + "?text=" + text;
+  const w = window.open(url, "_blank");
+  if (!w) {
+    showToast("Popup diblokir browser. Izinkan popup untuk situs ini.", "error");
+  }
+};
+
 // 1. Inisialisasi Auth Login (verifikasi ke backend GAS, token-based)
 function initAdminAuth() {
   const loginForm = document.getElementById('admin-login-form');
@@ -850,6 +865,7 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
         startKioskLoop();
       }, 4500);
     }
+    }
 
     // 8. Pengaturan Poster & Info Event + Reset Data Event + Google Integration
     function initEventSettings() {
@@ -1510,4 +1526,3 @@ const resp = await fetch(`${targetGasUrl}?action=getData&token=${encodeURICompon
       document.body.removeChild(a);
     };
 
-}
