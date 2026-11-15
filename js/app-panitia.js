@@ -124,11 +124,21 @@ async function renderAdminEventsList() {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color:var(--text-muted); padding:20px;">Belum ada event.</td></tr>';
         return;
       }
-      json.data.forEach(ev => {
+      // Urutkan: parent dulu, lalu sub-event (indent)
+      const sorted = json.data.slice().sort((a, b) => {
+        const pa = a.parentId || '';
+        const pb = b.parentId || '';
+        if (pa === '' && pb !== '') return -1;
+        if (pa !== '' && pb === '') return 1;
+        if (pa !== pb) return pa.localeCompare(pb);
+        return String(a.name).localeCompare(String(b.name));
+      });
+      sorted.forEach(ev => {
+        const isSub = !!ev.parentId;
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><strong style="color:var(--accent-cyan); font-family:monospace;">${escapeHtml(ev.eventId)}</strong></td>
-          <td>${escapeHtml(ev.name)}</td>
+          <td>${isSub ? '&nbsp;&nbsp;↳ ' : ''}${escapeHtml(ev.name)}</td>
           <td>${escapeHtml(ev.date || '-')}</td>
           <td>${escapeHtml(ev.venue || '-')}</td>
           <td>${ev.active ? '<span class="badge badge-success">AKTIF</span>' : '<span class="badge badge-warning">Nonaktif</span>'}</td>
@@ -226,6 +236,30 @@ window.setActiveAdminEvent = async function (eventId) {
   }
 };
 
+async function populateParentEventSelector(currentEventId) {
+  const sel = document.getElementById('set-parent-event');
+  if (!sel) return;
+  const token = getAdminToken();
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(`${gasUrl}?action=getEvents&token=${encodeURIComponent(token)}`, { redirect: 'follow' });
+    const json = await resp.json();
+    if (json.status === 'success' && Array.isArray(json.data)) {
+      sel.innerHTML = '<option value="">-- Tidak ada (Event utama) --</option>';
+      json.data.forEach(ev => {
+        if (ev.eventId === currentEventId) return;
+        const opt = document.createElement('option');
+        opt.value = ev.eventId;
+        opt.textContent = ev.name + ' (' + ev.eventId + ')';
+        sel.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.warn('[populateParentEventSelector]', e);
+  }
+}
+
 async function loadAdminEventSettings(eventId) {
   const token = getAdminToken();
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
@@ -237,6 +271,7 @@ async function loadAdminEventSettings(eventId) {
       const cloud = json.settings;
       localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloud));
       // populate form
+      const inputParentEvent = document.getElementById('set-parent-event');
       const inputName = document.getElementById('set-event-name');
       const inputDate = document.getElementById('set-event-date');
       const inputVenue = document.getElementById('set-event-venue');
@@ -253,6 +288,8 @@ async function loadAdminEventSettings(eventId) {
       const inputGasUrl = document.getElementById('set-gas-url');
       const inputSheetUrl = document.getElementById('set-sheet-url');
       const groupDeadlineDatetime = document.getElementById('group-deadline-datetime');
+      populateParentEventSelector(eventId);
+      if (inputParentEvent) inputParentEvent.value = cloud.parentId || '';
       if (inputName) inputName.value = cloud.name || '';
       if (inputDate) inputDate.value = cloud.date || '';
       if (inputVenue) inputVenue.value = cloud.venue || '';
@@ -1102,6 +1139,7 @@ async function processAdminScanResult(qrText) {
 
       // Load Existing Custom Event Info
       const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+      const inputParentEvent = document.getElementById('set-parent-event');
       const inputName = document.getElementById('set-event-name');
       const inputDate = document.getElementById('set-event-date');
       const inputVenue = document.getElementById('set-event-venue');
@@ -1267,7 +1305,8 @@ async function processAdminScanResult(qrText) {
        form.addEventListener('submit', (e) => {
         e.preventDefault();
 
-        const name = inputName.value.trim();
+        const parentEventId = inputParentEvent ? inputParentEvent.value.trim() : "";
+         const name = inputName.value.trim();
         const date = inputDate.value.trim();
         const venue = inputVenue.value.trim();
         const posterUrlText = inputPosterUrl.value.trim();
@@ -1305,6 +1344,7 @@ async function processAdminScanResult(qrText) {
            waPanitiaNumber,
           driveFolder,
            eventId: eventIdForSave,
+           parentId: parentEventId,
           gasApiUrl,
           sheetUrl
         };

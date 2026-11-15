@@ -15,6 +15,20 @@ document.addEventListener('DOMContentLoaded', () => {
   initCopyAccount();
   initUploadForm();
   initCheckStatusForm();
+  loadPesertaEvents();
+  const sel = document.getElementById('peserta-event-selector');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      const eid = sel.value;
+      if (eid) {
+        localStorage.setItem('CURRENT_EVENT_ID', eid);
+        // reload page with ?event= param to apply settings
+        const url = new URL(window.location.href);
+        url.searchParams.set('event', eid);
+        window.location.href = url.toString();
+      }
+    });
+  }
 });
 
 // Mock Storage Helper (Untuk Uji Coba Lokal)
@@ -92,6 +106,35 @@ function getCurrentEventId() {
     return fromUrl;
   }
   return localStorage.getItem('CURRENT_EVENT_ID') || "";
+}
+
+async function loadPesertaEvents() {
+  const sel = document.getElementById('peserta-event-selector');
+  if (!sel) return;
+  const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  try {
+    const resp = await fetch(`${gasUrl}?action=getPublicEvents`, { redirect: 'follow' });
+    const json = await resp.json();
+    if (json.status === 'success' && Array.isArray(json.data)) {
+      sel.innerHTML = '';
+      json.data.forEach(ev => {
+        const opt = document.createElement('option');
+        opt.value = ev.eventId;
+        const prefix = ev.parentId ? '↳ ' : '';
+        opt.textContent = prefix + ev.name + (ev.date ? ' — ' + ev.date : '');
+        sel.appendChild(opt);
+      });
+      const current = getCurrentEventId();
+      if (current) sel.value = current;
+      else if (json.data.length > 0) {
+        sel.value = json.data[0].eventId;
+        localStorage.setItem('CURRENT_EVENT_ID', json.data[0].eventId);
+      }
+    }
+  } catch (e) {
+    console.warn('[loadPesertaEvents]', e);
+  }
 }
 
 function initEventDetails() {
