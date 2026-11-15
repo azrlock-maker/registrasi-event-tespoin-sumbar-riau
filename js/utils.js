@@ -62,10 +62,28 @@ function generateUniqueTicketCode(eventName) {
   return `${prefix}${String(year).slice(-2)}-${randomCode}`;
 }
 
-// Generator No. Peserta (TSR-001, ...)
-function generateParticipantRegId(existingArray) {
-  const nextNum = (existingArray ? existingArray.length : 0) + 1;
-  return `TSR-${String(nextNum).padStart(3, '0')}`;
+// Awalan No. Peserta dari huruf awal 2 kata pertama nama event.
+// Contoh: "Silaturahmi Akbar" -> "SA", "Lomba CGC" -> "LC".
+function eventNamePrefix(name) {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  const clean = (w) => String(w).replace(/[^A-Za-z0-9]/g, "");
+  if (words.length === 1) return clean(words[0]).substring(0, 2).toUpperCase();
+  return words.slice(0, 2).map(w => clean(w).charAt(0)).join("").toUpperCase();
+}
+
+// Generator No. Peserta: awalan dari nama event, mis. "Silaturahmi Akbar" -> SA-001
+function generateParticipantRegId(existingArray, prefixBase) {
+  let base = String(prefixBase || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!base) base = "EVT";
+  const prefix = base + "-";
+  const re = new RegExp("^" + base + "-(\\d+)$", "i");
+  let max = 0;
+  (existingArray || []).forEach(function (it) {
+    const m = String((it && it.regId) || "").match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return prefix + String(max + 1).padStart(3, '0');
 }
 
 // Merge data lokal + remote (GAS) tanpa kehilangan record lokal yang belum sync
@@ -107,6 +125,40 @@ function isValidEmail(email) {
 function isValidPhone(phone) {
   const n = normalizePhone(phone);
   return n.length >= 10 && n.length <= 13;
+}
+
+// Format tanggal event: ISO (YYYY-MM-DD) → "Sabtu, 15 Agustus 2026"; string biasa → as-is
+function formatEventDate(dateStr) {
+  if (!dateStr) return "";
+  const s = String(dateStr).trim();
+  if (/[a-zA-Z]/.test(s)) return s; // sudah terformat
+  const d = new Date(s + "T00:00:00");
+  if (isNaN(d.getTime())) return s;
+  const days = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+  const months = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  return days[d.getDay()] + ", " + d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+}
+
+// Konversi link Google Drive share ke URL thumbnail yang bisa ditampilkan sebagai gambar
+function convertDriveLink(url) {
+  if (!url) return url;
+  const s = String(url).trim();
+  // Format: https://drive.google.com/file/d/FILE_ID/view?...
+  let m = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) {
+    return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w1200-h1600";
+  }
+  // Format: https://drive.google.com/open?id=FILE_ID
+  m = s.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+  if (m) {
+    return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w1200-h1600";
+  }
+  // Format: https://drive.google.com/uc?id=FILE_ID
+  m = s.match(/drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/);
+  if (m) {
+    return "https://drive.google.com/thumbnail?id=" + m[1] + "&sz=w1200-h1600";
+  }
+  return s;
 }
 
 // Konversi nomor WA ke format internasional (62xxx) untuk link wa.me

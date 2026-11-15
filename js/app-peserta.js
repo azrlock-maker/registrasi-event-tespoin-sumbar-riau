@@ -9,26 +9,16 @@
 console.log("%c⚡ Event Registration System | Crafted & Developed by radh29", "color: #38bdf8; font-size: 12px; font-weight: bold; background: #0f172a; padding: 4px 10px; border-radius: 4px;");
 
 document.addEventListener('DOMContentLoaded', () => {
-  initEventDetails();
   initTabNavigation();
   initRegistrationForm();
   initCopyAccount();
   initUploadForm();
   initCheckStatusForm();
-  loadPesertaEvents();
-  const sel = document.getElementById('peserta-event-selector');
-  if (sel) {
-    sel.addEventListener('change', () => {
-      const eid = sel.value;
-      if (eid) {
-        localStorage.setItem('CURRENT_EVENT_ID', eid);
-        // reload page with ?event= param to apply settings
-        const url = new URL(window.location.href);
-        url.searchParams.set('event', eid);
-        window.location.href = url.toString();
-      }
-    });
-  }
+  // Parallel: init event details + load event list
+  Promise.all([
+    Promise.resolve(initEventDetails()),
+    loadPesertaEvents()
+  ]);
 });
 
 // Mock Storage Helper (Untuk Uji Coba Lokal)
@@ -43,6 +33,7 @@ function getLocalData() {
       list.forEach(item => {
         if (!item.ticketCode) {
           const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
           const eventName = customInfo.name || CONFIG.EVENT_INFO.NAME;
           item.ticketCode = generateUniqueTicketCode(eventName);
           needsSave = true;
@@ -97,6 +88,9 @@ function isRegistrationClosed(customInfo) {
 
 // 1. Inisialisasi Info Event dari Config / Custom Admin Settings
 // Urutan prioritas: GAS Cloud > localStorage cache > CONFIG default
+// Global: parent event id (jika event saat ini adalah sub-event)
+let currentParentEventId = "";
+
 // Helper: ambil eventId dari URL (?event=EVTxxx) atau localStorage
 function getCurrentEventId() {
   const params = new URLSearchParams(window.location.search);
@@ -109,31 +103,115 @@ function getCurrentEventId() {
 }
 
 async function loadPesertaEvents() {
-  const sel = document.getElementById('peserta-event-selector');
-  if (!sel) return;
+  const searchInput = document.getElementById('peserta-event-search');
+  const dropdown = document.getElementById('peserta-event-dropdown');
+  const cardsContainer = document.getElementById('peserta-event-cards');
+  const hasEventParam = new URLSearchParams(window.location.search).has('event');
+
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
   const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+
+  let allEvents = [];
+  if (cardsContainer && !hasEventParam) {
+    cardsContainer.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:24px; color:var(--text-muted);"><i class="ri-loader-4-line ri-spin" style="font-size:1.5rem;"></i><p style="margin-top:8px;">Memuat event...</p></div>';
+  }
   try {
-    const resp = await fetch(`${gasUrl}?action=getPublicEvents`, { redirect: 'follow' });
+    const resp = await fetch(gasUrl + '?action=getPublicEvents&t=' + Date.now(), { redirect: 'follow' });
     const json = await resp.json();
     if (json.status === 'success' && Array.isArray(json.data)) {
-      sel.innerHTML = '';
-      json.data.forEach(ev => {
-        const opt = document.createElement('option');
-        opt.value = ev.eventId;
-        const prefix = ev.parentId ? '↳ ' : '';
-        opt.textContent = prefix + ev.name + (ev.date ? ' — ' + ev.date : '');
-        sel.appendChild(opt);
-      });
-      const current = getCurrentEventId();
-      if (current) sel.value = current;
-      else if (json.data.length > 0) {
-        sel.value = json.data[0].eventId;
-        localStorage.setItem('CURRENT_EVENT_ID', json.data[0].eventId);
-      }
+      // Filter: hanya tampilkan event aktif (fallback jika GAS lama)
+      allEvents = json.data.filter(ev => ev.active !== false && String(ev.active).toLowerCase() !== 'false');
+      if (allEvents.length === 0) allEvents = json.data; // fallback: tampilkan semua jika tidak ada active
     }
   } catch (e) {
     console.warn('[loadPesertaEvents]', e);
+  }
+
+  // Render dropdown items (filtered by search)
+  function renderDropdown(filter) {
+    if (!dropdown) return;
+    const q = (filter || '').toLowerCase().trim();
+    const filtered = q ? allEvents.filter(ev => ev.name.toLowerCase().includes(q)) : allEvents;
+    dropdown.innerHTML = '';
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding:10px 14px; color:var(--text-muted); font-size:0.9rem;">Tidak ada event ditemukan</div>';
+      dropdown.style.display = 'block';
+      return;
+    }
+    filtered.forEach(ev => {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:10px 14px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.06);';
+      const prefix = ev.parentId ? '\u21B3 ' : '';
+      item.innerHTML = '<div style="font-weight:600; color:#fff;">' + escapeHtml(prefix + ev.name) + '</div><div style="font-size:0.8rem; color:var(--text-muted);">' + escapeHtml(formatEventDate(ev.date) || '') + ' ' + escapeHtml(ev.venue || '') + '</div>';
+      item.addEventListener('click', () => {
+        searchInput.value = '';
+        dropdown.style.display = 'none';
+        localStorage.setItem('CURRENT_EVENT_ID', ev.eventId);
+        const url = new URL(window.location.href);
+        url.searchParams.set('event', ev.eventId);
+        window.location.href = url.toString();
+      });
+      dropdown.appendChild(item);
+    });
+    dropdown.style.display = 'block';
+  }
+
+  if (searchInput && dropdown) {
+    searchInput.addEventListener('input', () => {
+      if (searchInput.value.trim() === '') {
+        dropdown.style.display = 'none';
+      } else {
+        renderDropdown(searchInput.value);
+      }
+    });
+    searchInput.addEventListener('focus', () => {
+      if (searchInput.value.trim() !== '') {
+        renderDropdown(searchInput.value);
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.style.display = 'none';
+      }
+    });
+    // Default: kosong (tidak tampil nama event)
+  }
+
+  // Render event cards (only if no event selected)
+  if (cardsContainer) {
+    if (hasEventParam) {
+      cardsContainer.style.display = 'none';
+        const listHeader = document.getElementById('peserta-event-list-header');
+        if (listHeader) listHeader.style.display = 'none';
+      const searchInput = document.getElementById('peserta-event-search');
+      if (searchInput && searchInput.parentElement) searchInput.parentElement.style.display = 'none';
+      const backDiv = document.getElementById('peserta-back-to-list');
+      if (backDiv) backDiv.style.display = '';
+    } else {
+      cardsContainer.style.display = '';
+        const listHeader2 = document.getElementById('peserta-event-list-header');
+        if (listHeader2) listHeader2.style.display = '';
+      const searchInput = document.getElementById('peserta-event-search');
+      if (searchInput && searchInput.parentElement) searchInput.parentElement.style.display = '';
+      const backDiv = document.getElementById('peserta-back-to-list');
+      if (backDiv) backDiv.style.display = 'none';
+      cardsContainer.innerHTML = '';
+      allEvents.forEach(ev => {
+        const card = document.createElement('div');
+        card.className = 'glass-panel';
+        card.style.cssText = 'padding:14px; cursor:pointer; transition:transform 0.2s;';
+        const prefix = ev.parentId ? '\u21B3 ' : '';
+        card.innerHTML = '<div style="font-weight:700; color:#fff; margin-bottom:4px;">' + escapeHtml(prefix + ev.name) + '</div><div style="font-size:0.85rem; color:var(--text-muted);">' + escapeHtml(formatEventDate(ev.date) || '') + '</div><div style="font-size:0.85rem; color:var(--text-muted);">' + escapeHtml(ev.venue || '') + '</div>';
+        card.addEventListener('click', () => {
+          localStorage.setItem('CURRENT_EVENT_ID', ev.eventId);
+          const url = new URL(window.location.href);
+          url.searchParams.set('event', ev.eventId);
+          window.location.href = url.toString();
+        });
+        cardsContainer.appendChild(card);
+      });
+    }
   }
 }
 
@@ -183,8 +261,11 @@ function initEventDetails() {
 // Fungsi internal: Terapkan setting event ke seluruh elemen UI
 function applyEventDetailsToUI() {
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
-  const posterUrl = customInfo.posterUrl || CONFIG.EVENT_INFO.POSTER_URL;
-  const name = customInfo.name || CONFIG.EVENT_INFO.NAME;
+  currentParentEventId = customInfo.parentId || "";
+  const hasEventParam = new URLSearchParams(window.location.search).has('event');
+  const posterUrl = convertDriveLink(customInfo.posterUrl) || CONFIG.EVENT_INFO.POSTER_URL;
+  // Jika belum memilih event, gunakan judul generik (bukan nama event terakhir)
+  const name = hasEventParam ? (customInfo.name || CONFIG.EVENT_INFO.NAME) : "";
   const date = customInfo.date || CONFIG.EVENT_INFO.DATE;
   const venue = customInfo.venue || CONFIG.EVENT_INFO.VENUE;
 
@@ -195,9 +276,9 @@ function applyEventDetailsToUI() {
   const eventVenue = document.getElementById('event-venue');
 
   if (posterImg) posterImg.src = posterUrl;
-  if (eventName) eventName.textContent = name;
-  if (siteTitleHeading) siteTitleHeading.textContent = name;
-  if (eventDate) eventDate.innerHTML = `<i class="ri-calendar-event-line"></i> ${date}`;
+  if (eventName) { eventName.textContent = name; eventName.style.display = name ? '' : 'none'; }
+  if (siteTitleHeading) { siteTitleHeading.textContent = name; siteTitleHeading.style.display = name ? '' : 'none'; }
+  if (eventDate) eventDate.innerHTML = `<i class="ri-calendar-event-line"></i> ${formatEventDate(date)}`;
   if (eventVenue) eventVenue.innerHTML = `<i class="ri-map-pin-line"></i> ${venue}`;
 
   // Fill Dynamic Bank Info from Admin Settings / Config
@@ -210,9 +291,59 @@ function applyEventDetailsToUI() {
   if (accNum) accNum.textContent = paymentInfo.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
   if (accHolder) accHolder.textContent = `a.n ${paymentInfo.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER}`;
 
+  // Jika event non-aktif, tampilkan pesan dan sembunyikan form
+  const isActive = customInfo.active !== false; // default true jika tidak ada
+  const inactiveBanner = document.getElementById('event-inactive-banner');
+  if (inactiveBanner) {
+    inactiveBanner.style.display = isActive ? 'none' : '';
+  }
+  const regForm = document.getElementById('registration-form');
+  if (regForm) {
+    regForm.style.display = isActive ? '' : 'none';
+  }
+
+  // Toggle field form peserta berdasarkan pengaturan event (participantFields)
+  const pf = customInfo.participantFields || {};
+
+  // Toggle tab Upload Transfer
+  const showUpload = pf.showUploadTab !== false;
+  const uploadTabBtn = document.querySelector('.tab-btn[data-tab="panel-upload"]');
+  const uploadPanel = document.getElementById('panel-upload');
+  if (uploadTabBtn) uploadTabBtn.style.display = showUpload ? '' : 'none';
+  if (uploadPanel && !showUpload) uploadPanel.classList.remove('active');
+  const fieldMap = {
+    'reg-email': pf.email !== false,
+    'reg-nowa': pf.noWa !== false,
+    'reg-toko': pf.namaToko !== false,
+    'reg-domisili': pf.domisili !== false,
+    'reg-baju': pf.ukuranBaju !== false
+  };
+  Object.keys(fieldMap).forEach(id => {
+    const input = document.getElementById(id);
+    if (input) {
+      const group = input.closest('.form-group');
+      if (group) {
+        group.style.display = fieldMap[id] ? '' : 'none';
+      }
+      // set required attribute
+      if (fieldMap[id]) input.setAttribute('required', 'required');
+      else input.removeAttribute('required');
+    }
+  });
+
+  // Tampilkan poster & konten utama hanya jika event sudah dipilih
+  const heroCard = document.querySelector('.hero-poster-card');
+  if (heroCard) {
+    heroCard.style.display = hasEventParam ? '' : 'none';
+  }
+  const mainContent = document.getElementById('peserta-main-content');
+  if (mainContent) {
+    mainContent.style.display = hasEventParam ? '' : 'none';
+  }
+
   // Handle Batas Waktu & Penutupan Akses Form Pendaftaran
   const closed = isRegistrationClosed(customInfo);
-  const regForm = document.getElementById('registration-form');
+  const regForm2 = document.getElementById('registration-form');
   const regPanelHeader = document.querySelector('#panel-register .panel-header');
   const existingClosedBanner = document.getElementById('reg-closed-banner');
 
@@ -244,15 +375,15 @@ function applyEventDetailsToUI() {
       regPanelHeader.insertAdjacentElement('afterend', banner);
     }
 
-    if (regForm) {
-      regForm.style.display = 'none';
+    if (regForm2) {
+      regForm2.style.display = 'none';
     }
   } else {
     if (existingClosedBanner) {
       existingClosedBanner.remove();
     }
-    if (regForm) {
-      regForm.style.display = '';
+    if (regForm2) {
+      regForm2.style.display = '';
     }
   }
 }
@@ -312,31 +443,66 @@ function initRegistrationForm() {
   const form = document.getElementById('registration-form');
   if (!form) return;
 
+  // Auto-fill dari event induk untuk sub-event (saat email/WA diisi)
+  async function tryAutoFillFromParent() {
+    if (!currentParentEventId) return;
+    const email = document.getElementById('reg-email').value.trim();
+    const noWa = document.getElementById('reg-nowa').value.trim();
+    if (!email && !noWa) return;
+    const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+    const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+    try {
+      const resp = await fetch(`${gasUrl}?action=checkDuplicate&email=${encodeURIComponent(email)}&noWa=${encodeURIComponent(noWa)}&eventId=${encodeURIComponent(currentParentEventId)}&t=${Date.now()}`, { redirect: 'follow' });
+      const json = await resp.json();
+      if (json.exists && json.data) {
+        const found = json.data;
+        const namaEl = document.getElementById('reg-nama');
+        const tokoEl = document.getElementById('reg-toko');
+        const domEl = document.getElementById('reg-domisili');
+        const bajuEl = document.getElementById('reg-baju');
+        if (namaEl && !namaEl.value) namaEl.value = found.nama || '';
+        if (tokoEl && !tokoEl.value) tokoEl.value = found.namaToko || '';
+        if (domEl && !domEl.value) domEl.value = found.domisili || '';
+        if (bajuEl && !bajuEl.value) bajuEl.value = found.ukuranBaju || '';
+        showToast("Data dari event utama ditemukan & diisi otomatis.", "success");
+      }
+    } catch (e) { console.warn("[auto-fill]", e); }
+  }
+  const emailEl = document.getElementById('reg-email');
+  const noWaEl = document.getElementById('reg-nowa');
+  if (emailEl) emailEl.addEventListener('blur', tryAutoFillFromParent);
+  if (noWaEl) noWaEl.addEventListener('blur', tryAutoFillFromParent);
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const nama = document.getElementById('reg-nama').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
-    const noWa = document.getElementById('reg-nowa').value.trim();
-    const namaToko = document.getElementById('reg-toko').value.trim();
-    const domisili = document.getElementById('reg-domisili').value.trim();
-    const ukuranBaju = document.getElementById('reg-baju').value;
+    let nama = document.getElementById('reg-nama').value.trim();
+    let email = document.getElementById('reg-email').value.trim();
+    let noWa = document.getElementById('reg-nowa').value.trim();
+    let namaToko = document.getElementById('reg-toko').value.trim();
+    let domisili = document.getElementById('reg-domisili').value.trim();
+    let ukuranBaju = document.getElementById('reg-baju').value;
 
-    if (!nama || !email || !noWa || !namaToko || !domisili || !ukuranBaju) {
-      showToast("Mohon lengkapi seluruh field pendaftaran!");
-      return;
-    }
-    if (!isValidEmail(email)) {
-      showToast("Format email tidak valid. Contoh: nama@gmail.com");
-      return;
-    }
-    if (!isValidPhone(noWa)) {
-      showToast("Nomor WhatsApp tidak valid. Gunakan 10-13 digit (contoh: 081234567890).");
-      return;
-    }
+    const customInfoReg = JSON.parse(localStorage.getItem("CUSTOM_EVENT_INFO") || "{}");
+    const pf = customInfoReg.participantFields || {};
+    const emailRequired = pf.email !== false;
+    const noWaRequired = pf.noWa !== false;
+    const tokoRequired = pf.namaToko !== false;
+    const domisiliRequired = pf.domisili !== false;
+    const bajuRequired = pf.ukuranBaju !== false;
+
+    if (!nama) { showToast("Mohon isi Nama Lengkap!", "warning"); return; }
+    if (emailRequired && !email) { showToast("Mohon isi Alamat Email!", "warning"); return; }
+    if (email && !isValidEmail(email)) { showToast("Format email tidak valid. Contoh: nama@gmail.com", "error"); return; }
+    if (noWaRequired && !noWa) { showToast("Mohon isi No. WhatsApp / HP!", "warning"); return; }
+    if (noWa && !isValidPhone(noWa)) { showToast("Nomor WhatsApp tidak valid. Gunakan 10-13 digit (contoh: 081234567890).", "error"); return; }
+    if (tokoRequired && !namaToko) { showToast("Mohon isi Nama Toko!", "warning"); return; }
+    if (domisiliRequired && !domisili) { showToast("Mohon isi Domisili!", "warning"); return; }
+    if (bajuRequired && !ukuranBaju) { showToast("Mohon pilih Ukuran Baju!", "warning"); return; }
 
     // Cek Batas Waktu Pendaftaran
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
     if (isRegistrationClosed(customInfo)) {
       showToast("Mohon maaf, pendaftaran event saat ini telah resmi ditutup.");
       initEventDetails();
@@ -346,6 +512,104 @@ function initRegistrationForm() {
     const btnSubmit = form.querySelector('button[type="submit"]');
     btnSubmit.disabled = true;
     btnSubmit.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Memproses Pendaftaran...`;
+
+    // Jika sub-event: cek apakah peserta sudah terdaftar di event induk
+    // Pastikan currentParentEventId terisi (fetch settings jika perlu)
+    if (!currentParentEventId) {
+      try {
+        const customInfoTmp = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+        const gasUrlTmp = customInfoTmp.gasApiUrl || CONFIG.GAS_API_URL;
+        const eidTmp = getCurrentEventId() || customInfoTmp.eventId || '';
+        const respTmp = await fetch(`${gasUrlTmp}?action=getSettings&eventId=${encodeURIComponent(eidTmp)}&t=${Date.now()}`, { redirect: 'follow' });
+        const jsonTmp = await respTmp.json();
+        if (jsonTmp.status === 'success' && jsonTmp.settings) {
+          currentParentEventId = jsonTmp.settings.parentId || '';
+          localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(jsonTmp.settings));
+        }
+      } catch (e) { console.warn('[parent check fetch]', e); }
+    }
+    if (currentParentEventId) {
+      const customInfoParent = JSON.parse(localStorage.getItem("CUSTOM_EVENT_INFO") || "{}");
+      const gasUrlParent = customInfoParent.gasApiUrl || CONFIG.GAS_API_URL;
+      let parentRegistered = false;
+      let fetchFailed = false;
+      let parentData = null;
+      try {
+        const respP = await fetch(`${gasUrlParent}?action=checkDuplicate&email=${encodeURIComponent(email)}&noWa=${encodeURIComponent(noWa)}&eventId=${encodeURIComponent(currentParentEventId)}&t=${Date.now()}`, { redirect: "follow" });
+        const jsonP = await respP.json();
+        if (jsonP.exists && jsonP.data) {
+          parentData = jsonP.data;
+          parentRegistered = true;
+        }
+      } catch (e) {
+        console.warn("[parent check]", e);
+        fetchFailed = true;
+      }
+
+      const showRegError = (icon, color, title, desc) => {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = `<i class="ri-send-plane-fill"></i> Daftar Sekarang & Terbitkan E-Tiket`;
+        const container = document.getElementById("reg-result-container");
+        if (container) {
+          container.innerHTML = `
+            <div class="glass-panel mt-3" style="border-color: ${color}; background: ${color}22; padding: 24px; text-align: center;">
+              <div style="font-size: 2.5rem; color: ${color}; margin-bottom: 8px;"><i class="${icon}"></i></div>
+              <h3 style="color: #fff; font-size: 1.2rem; margin: 0;">${title}</h3>
+              <p style="color: #e5e7eb; font-size: 0.95rem; margin: 8px 0 16px 0; line-height: 1.4;">${desc}</p>
+              ${(title === "BELUM TERDAFTAR DI EVENT UTAMA") ? `<a href="index.html?event=${encodeURIComponent(currentParentEventId)}" class="btn btn-primary"><i class="ri-arrow-right-line"></i> Daftar Event Utama</a>` : ``}
+            </div>
+          `;
+          container.scrollIntoView({ behavior: "smooth" });
+        }
+      };
+
+      if (fetchFailed) {
+        showRegError("ri-wifi-off-line", "#f59e0b", "GAGAL MEMVERIFIKASI", "Tidak dapat memverifikasi pendaftaran event utama. Periksa koneksi internet Anda dan coba lagi.");
+        showToast("Gagal memverifikasi. Periksa koneksi internet.", "error");
+        return;
+      }
+
+      if (!parentRegistered) {
+        showRegError("ri-forbid-2-line", "#f43f5e", "BELUM TERDAFTAR DI EVENT UTAMA", "Untuk mendaftar sub-event ini, Anda harus terdaftar di event utama terlebih dahulu. Silakan daftar event utama, lalu kembali ke sini.");
+        showToast("Anda harus terdaftar di event utama terlebih dahulu.", "error");
+        return;
+      }
+
+      // Ambil participantFields dari event utama (field yang dicentang wajib identik)
+      let pFields = {};
+      try {
+        const pSetResp = await fetch(`${gasUrlParent}?action=getSettings&eventId=${encodeURIComponent(currentParentEventId)}&t=${Date.now()}`, { redirect: "follow" });
+        const pSetJson = await pSetResp.json();
+        if (pSetJson.status === "success" && pSetJson.settings) {
+          pFields = pSetJson.settings.participantFields || {};
+        }
+      } catch (e) { console.warn("[parent fields]", e); }
+
+      // Data sub-event WAJIB identik dengan event utama. Karena itu nilainya
+      // cukup DISELARASKAN otomatis dengan pendaftaran event utama (tidak memblokir),
+      // sehingga peserta tetap memakai identitas yang sama (anti-kecurangan).
+      const aligned = [];
+      const alignVal = (key, elId, val, label) => {
+        if (pFields[key] === false) return val;   // field tidak diwajibkan identik
+        const pv = parentData[key];
+        if (!pv) return val;                       // event utama tidak punya nilai
+        if (String(val || "").trim() === String(pv).trim()) return val;
+        const el = document.getElementById(elId);
+        if (el) el.value = pv;
+        aligned.push(label);
+        return pv;
+      };
+      nama = alignVal("nama", "reg-nama", nama, "Nama");
+      email = alignVal("email", "reg-email", email, "Email");
+      noWa = alignVal("noWa", "reg-nowa", noWa, "No. WA");
+      namaToko = alignVal("namaToko", "reg-toko", namaToko, "Nama Toko");
+      domisili = alignVal("domisili", "reg-domisili", domisili, "Domisili");
+      ukuranBaju = alignVal("ukuranBaju", "reg-baju", ukuranBaju, "Ukuran Baju");
+
+      if (aligned.length > 0) {
+        showToast("Data disamakan otomatis dengan event utama (" + aligned.join(", ") + ").", "success");
+      }
+    }
 
     // Cek Anti-Duplikasi
     const isDuplicate = await checkDuplicateRegistration(email, noWa);
@@ -361,10 +625,9 @@ function initRegistrationForm() {
     const localData = getLocalData();
 
     // Buat No Peserta (TP-001) dan Kode Tiket Berbeda (CGC26-UNQC9Y)
-    const newRegId = generateParticipantRegId(localData);
+    const newRegId = generateParticipantRegId(localData, eventNamePrefix(currentEventName));
     const newTicketCode = generateUniqueTicketCode(currentEventName);
 
-    const customInfoReg = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     const newRecord = {
       timestamp: new Date().toLocaleString('id-ID'),
       regId: newRegId,
@@ -379,7 +642,7 @@ function initRegistrationForm() {
       urlBukti: "-",
       statusBayar: "BELUM LUNAS",
       statusHadir: "BELUM HADIR",
-      eventId: getCurrentEventId() || customInfoReg.eventId || ""
+      eventId: getCurrentEventId() || customInfo.eventId || ""
     };
 
     if (CONFIG.USE_MOCK_DATA) {
@@ -436,6 +699,7 @@ async function checkDuplicateRegistration(email, noWa) {
     return { exists: !!found, existingData: found };
   } else {
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
     const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
     try {
       const eid = getCurrentEventId() || (JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}').eventId || "");
@@ -489,6 +753,7 @@ function renderTicketSuccess(record, targetContainerId = 'reg-result-container')
   if (!resultContainer) return;
 
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
   const eventName = customInfo.name || CONFIG.EVENT_INFO.NAME;
   const eventDate = customInfo.date || CONFIG.EVENT_INFO.DATE;
   const eventVenue = customInfo.venue || CONFIG.EVENT_INFO.VENUE;
@@ -506,7 +771,7 @@ function renderTicketSuccess(record, targetContainerId = 'reg-result-container')
       saveLocalData(localData);
     }
   }
-  const displayRegId = record.regId || "TSR-001";
+  const displayRegId = record.regId || "EVT-001";
 
   const isLunas = record.statusBayar === 'LUNAS';
   const statusBadgeText = isLunas ? 'LUNAS' : (record.statusBayar || 'BELUM LUNAS');
@@ -802,6 +1067,7 @@ function initUploadForm() {
       } else {
         // Send to GAS (Mendukung Konfigurasi Dinamis dari Admin)
         const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
         const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
         try {
           const resp = await fetch(targetGasUrl, {
@@ -812,7 +1078,8 @@ function initUploadForm() {
               fileData: base64Data,
               fileName: file.name,
               adminEmail: customInfo.adminEmail || "",
-              driveFolder: customInfo.driveFolder || ""
+              driveFolder: customInfo.driveFolder || "",
+              eventId: getCurrentEventId() || customInfo.eventId || ""
             })
           });
           const json = await resp.json();
@@ -848,6 +1115,7 @@ function showUploadSuccessMessage(item) {
   const urlBukti = (item && item.urlBukti) ? item.urlBukti : "";
 
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
   const waPanitia = toWaInternational(customInfo.waPanitiaNumber || "");
   let waButtonHtml = "";
   if (waPanitia) {
@@ -912,14 +1180,15 @@ function initCheckStatusForm() {
     if (!found && !CONFIG.USE_MOCK_DATA) {
       try {
         const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+  currentParentEventId = customInfo.parentId || "";
         const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
         const cacheBuster = Date.now();
         const eid = getCurrentEventId() || (JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}').eventId || "");
-         const resp = await fetch(`${targetGasUrl}?action=getData${eid ? `&eventId=${encodeURIComponent(eid)}` : ""}&t=${cacheBuster}`, { redirect: 'follow' });
+         const resp = await fetch(`${targetGasUrl}?action=findParticipant&query=${encodeURIComponent(query)}${eid ? `&eventId=${encodeURIComponent(eid)}` : ""}&t=${cacheBuster}`, { redirect: 'follow' });
         const text = await resp.text();
         const json = JSON.parse(text);
-        if (json.status === 'success' && Array.isArray(json.data)) {
-          const merged = mergeData(getLocalData(), json.data);
+        if (json.exists && json.data) {
+          const merged = mergeData(getLocalData(), [json.data]);
            saveLocalData(merged); // Cache ke lokal untuk query berikutnya
           found = findParticipantByQuery(merged, query);
         }

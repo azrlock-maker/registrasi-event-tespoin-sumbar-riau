@@ -83,6 +83,13 @@ async function loadAdminEvents() {
     const json = await resp.json();
     if (json.status === 'success' && Array.isArray(json.data)) {
       sel.innerHTML = '';
+      // Simpan peta event (untuk deteksi sub-event saat OTS)
+      window.__adminEventsMap = {};
+      json.data.forEach(ev => { window.__adminEventsMap[ev.eventId] = ev; });
+      if (json.data.length === 0) {
+        sel.innerHTML = '<option value="">Belum ada event</option>';
+        return;
+      }
       json.data.forEach(ev => {
         const opt = document.createElement('option');
         opt.value = ev.eventId;
@@ -98,10 +105,12 @@ async function loadAdminEvents() {
         sel.value = currentAdminEventId;
       }
       localStorage.setItem('CURRENT_ADMIN_EVENT_ID', currentAdminEventId);
-      renderAdminEventsList();
-      // Load settings for current event
-      await loadAdminEventSettings(currentAdminEventId);
-      loadAdminTableData();
+      // Parallel load
+      await Promise.all([
+        renderAdminEventsList(),
+        loadAdminEventSettings(currentAdminEventId),
+        loadAdminTableData()
+      ]);
     }
   } catch (e) {
     console.warn('[loadAdminEvents]', e);
@@ -139,7 +148,7 @@ async function renderAdminEventsList() {
         tr.innerHTML = `
           <td><strong style="color:var(--accent-cyan); font-family:monospace;">${escapeHtml(ev.eventId)}</strong></td>
           <td>${isSub ? '&nbsp;&nbsp;↳ ' : ''}${escapeHtml(ev.name)}</td>
-          <td>${escapeHtml(ev.date || '-')}</td>
+          <td>${escapeHtml(formatEventDate(ev.date) || '-')}</td>
           <td>${escapeHtml(ev.venue || '-')}</td>
           <td>${ev.active ? '<span class="badge badge-success">AKTIF</span>' : '<span class="badge badge-warning">Nonaktif</span>'}</td>
           <td>
@@ -147,7 +156,7 @@ async function renderAdminEventsList() {
               <button class="btn btn-emerald" style="padding:4px 8px; font-size:0.75rem;" onclick="toggleAdminEventActive('${escapeHtml(ev.eventId)}', ${!ev.active})">
                 <i class="ri-${ev.active ? 'close' : 'check'}-line"></i> ${ev.active ? 'Nonaktifkan' : 'Aktifkan'}
               </button>
-              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}').then(()=>{document.querySelector('.admin-tab-btn[data-tab=\\'panel-settings\\']').click(); setTimeout(()=>{document.getElementById('event-settings-form').scrollIntoView({behavior:'smooth'});},200);});"><i class="ri-edit-line"></i> Edit</button>
+              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}').then(()=>{var b=document.querySelector('.admin-tab-btn[data-tab=\\'panel-settings\\']'); if(b) b.click(); setTimeout(function(){var f=document.getElementById('event-settings-form'); if(f) f.scrollIntoView({behavior:'smooth', block:'start'});},150);});"><i class="ri-edit-line"></i> Edit</button>
               <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; background:linear-gradient(135deg,#f43f5e,#e11d48);" onclick="deleteAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-delete-bin-line"></i> Hapus</button>
             </div>
           </td>
@@ -168,19 +177,35 @@ window.createNewEvent = async function () {
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
   const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
   const eventId = "EVT" + Date.now().toString().slice(-6);
+
+  // Tentukan parent: jika event saat ini adalah event utama (tanpa parent), tawarkan buat sub-event
+  let parentId = "";
+  if (currentAdminEventId && (!customInfo.parentId)) {
+    const makeSub = confirm("Buat sebagai sub-event (lomba) dari event '" + (customInfo.name || currentAdminEventId) + "'?\n\nOK = Sub-event (lomba)\nCancel = Event utama baru");
+    if (makeSub) {
+      parentId = currentAdminEventId;
+    }
+  }
+
   try {
     const resp = await fetch(gasUrl, {
       method: 'POST',
       body: JSON.stringify({
         action: 'saveEvent',
-        event: { eventId: eventId, name: name.trim(), date: '', venue: '', paymentInfo: {} },
+        event: { eventId: eventId, name: name.trim(), date: '', venue: '', paymentInfo: {}, parentId: parentId },
         token: token
       })
     });
     const json = await resp.json();
     if (json.status === 'success') {
-      showToast("Event baru dibuat: " + name + ". Klik 'Edit' untuk isi detail.", "success");
+      showToast("Event baru dibuat: " + name + (parentId ? " (sub-event dari " + parentId + ")" : ""), "success");
       renderAdminEventsList();
+      // Jika sub-event, tetap di event utama agar data sync
+      if (parentId) {
+        await switchAdminEvent(parentId);
+      } else {
+        await switchAdminEvent(eventId);
+      }
     } else {
       console.error('[createNewEvent] GAS response:', json);
       showToast(json.message || "Gagal membuat event", "error");
@@ -192,28 +217,64 @@ window.createNewEvent = async function () {
 };
 
 window.deleteAdminEvent = async function (eventId) {
-  if (eventId === currentAdminEventId) {
-    showToast("Tidak bisa menghapus event yang sedang aktif. Pilih event lain dulu.", "warning");
-    return;
+  const evMap = window.__adminEventsMap || {};
+
+  // Kumpulkan event ini + semua sub-event turunannya (ikut terhapus berantai di server)
+  const toDelete = new Set([eventId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    Object.keys(evMap).forEach(id => {
+      const p = evMap[id] && String(evMap[id].parentId || '');
+      if (!toDelete.has(id) && p && toDelete.has(p)) { toDelete.add(id); grew = true; }
+    });
   }
-  if (!await showConfirm("Hapus event " + eventId + "? Data peserta event ini juga akan terhapus.")) return;
+  const childCount = toDelete.size - 1;
+
+  // Jika event yang dihapus (atau turunannya) sedang dibuka, pindah ke event lain dulu
+  if (toDelete.has(currentAdminEventId)) {
+    const token = getAdminToken();
+    const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
+    const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+    try {
+      const resp = await fetch(`${gasUrl}?action=getEvents&token=${encodeURIComponent(token)}`, { redirect: 'follow' });
+      const json = await resp.json();
+      if (json.status === 'success' && Array.isArray(json.data)) {
+        const other = json.data.find(ev => !toDelete.has(ev.eventId));
+        if (other) {
+          await switchAdminEvent(other.eventId);
+        }
+      }
+    } catch (e) { console.warn(e); }
+  }
+
+  let confirmMsg = "Hapus event " + eventId + "? Data peserta dan tab sheet-nya di Google Sheets juga akan terhapus.";
+  if (childCount > 0) {
+    confirmMsg = "Hapus event " + eventId + " beserta " + childCount + " sub-event di bawahnya? Semua data peserta dan tab sheet-nya di Google Sheets juga akan terhapus.";
+  }
+  if (!await showConfirm(confirmMsg)) return;
   const token = getAdminToken();
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
   const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
+  console.log("[deleteAdminEvent] gasUrl:", gasUrl, "eventId:", eventId);
   try {
     const resp = await fetch(gasUrl, {
       method: 'POST',
       body: JSON.stringify({ action: 'deleteEvent', eventId: eventId, token: token })
     });
-    const json = await resp.json();
+    const text = await resp.text();
+    console.log("[deleteAdminEvent] response:", text);
+    let json;
+    try { json = JSON.parse(text); } catch (e) { json = { status: "error", message: text }; }
     if (json.status === 'success') {
-      showToast("Event dihapus", "success");
+      showToast(json.message || "Event dihapus", "success");
       renderAdminEventsList();
     } else {
-      showToast(json.message || "Gagal menghapus", "error");
+      showToast(json.message || "Gagal menghapus event", "error");
     }
   } catch (e) {
-    showToast("Gagal terhubung ke server", "error");
+    console.error("[deleteAdminEvent] error:", e);
+    showToast("Gagal terhubung ke server: " + e.message, "error");
   }
 };
 
@@ -274,6 +335,13 @@ async function loadAdminEventSettings(eventId) {
       localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloud));
       // populate form
       const inputParentEvent = document.getElementById('set-parent-event');
+       const inputSubEventMode = document.getElementById('set-sub-event-mode');
+       const pfEmail = document.getElementById('pf-email');
+       const pfNowa = document.getElementById('pf-nowa');
+       const pfToko = document.getElementById('pf-toko');
+       const pfDomisili = document.getElementById('pf-domisili');
+       const pfBaju = document.getElementById('pf-baju');
+       const pfUpload = document.getElementById('pf-upload');
       const inputName = document.getElementById('set-event-name');
       const inputDate = document.getElementById('set-event-date');
       const inputVenue = document.getElementById('set-event-venue');
@@ -291,8 +359,25 @@ async function loadAdminEventSettings(eventId) {
       const inputSheetUrl = document.getElementById('set-sheet-url');
       const groupDeadlineDatetime = document.getElementById('group-deadline-datetime');
       await populateParentEventSelector(eventId);
-      if (inputParentEvent) inputParentEvent.value = cloud.parentId || '';
+      if (inputParentEvent) {
+        inputParentEvent.value = cloud.parentId || '';
+        // auto-check sub-event mode if parent is set
+        if (inputSubEventMode && cloud.parentId) inputSubEventMode.checked = true;
+      }
+      if (inputSubEventMode) inputSubEventMode.checked = !!(cloud.isSubEvent || cloud.parentId || (inputParentEvent && inputParentEvent.value));
+      const pf = cloud.participantFields || {};
+      if (pfEmail) pfEmail.checked = pf.email !== false;
+      if (pfNowa) pfNowa.checked = pf.noWa !== false;
+      if (pfToko) pfToko.checked = pf.namaToko !== false;
+      if (pfDomisili) pfDomisili.checked = pf.domisili !== false;
+      if (pfBaju) pfBaju.checked = pf.ukuranBaju !== false;
+      if (pfUpload) pfUpload.checked = pf.showUploadTab !== false;
       if (inputName) inputName.value = cloud.name || '';
+      // Update indikator event yang sedang diedit
+      const indName = document.getElementById('editing-event-name');
+      const indId = document.getElementById('editing-event-id');
+      if (indName) indName.textContent = cloud.name || eventId;
+      if (indId) indId.textContent = '(' + eventId + ')';
       if (inputDate) inputDate.value = cloud.date || '';
       if (inputVenue) inputVenue.value = cloud.venue || '';
       if (inputPosterUrl) inputPosterUrl.value = cloud.posterUrl || '';
@@ -309,7 +394,11 @@ async function loadAdminEventSettings(eventId) {
         inputDeadlineMode.value = cloud.deadlineMode || 'unlimited';
         if (groupDeadlineDatetime) groupDeadlineDatetime.style.display = inputDeadlineMode.value === 'datetime' ? 'block' : 'none';
       }
-      if (inputDeadlineDatetime) inputDeadlineDatetime.value = cloud.deadlineDateTime || '';
+      if (inputDeadlineDatetime) {
+        inputDeadlineDatetime.value = cloud.deadlineDateTime || '';
+        if (typeof window.fillDeadlineControls === 'function') window.fillDeadlineControls();
+        if (typeof window.updateDeadlinePreview === 'function') window.updateDeadlinePreview();
+      }
       if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || '';
     }
   } catch (e) {
@@ -322,9 +411,12 @@ window.switchAdminEvent = async function (eventId) {
   if (!eventId) return;
   currentAdminEventId = eventId;
   localStorage.setItem('CURRENT_ADMIN_EVENT_ID', eventId);
-  await loadAdminEventSettings(eventId);
-  loadAdminTableData();
-  renderAdminEventsList();
+  // Parallel fetch: settings + data + events list
+  await Promise.all([
+    loadAdminEventSettings(eventId),
+    loadAdminTableData(),
+    renderAdminEventsList()
+  ]);
 };
 
 window.testWaNotification = function () {
@@ -457,6 +549,8 @@ function initAdminTabs() {
 }
 
 
+let lastLoadedEventId = null;
+
 // 4. Load & Render Tabel Live Data Peserta
 // Tampilkan dari localStorage dulu (instant), lalu fetch GAS di background untuk data terbaru
 async function loadAdminTableData() {
@@ -467,9 +561,14 @@ async function loadAdminTableData() {
 
   if (!tableBody) return;
 
-  // Render dari localStorage dulu (instant, tidak ada delay)
+  // Render dari localStorage dulu (instant), kecuali event baru berbeda → tampilkan loading
+  const eid = currentAdminEventId || "";
   let data = getLocalData();
-  renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
+  if (eid !== lastLoadedEventId && lastLoadedEventId !== null) {
+    tableBody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted); padding:20px;"><i class="ri-loader-4-line ri-spin"></i> Memuat data event...</td></tr>`;
+  } else {
+    renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
+  }
 
   // Fetch data terbaru dari GAS di background (agar semua registrasi peserta via GAS tampil)
   if (!CONFIG.USE_MOCK_DATA) {
@@ -483,10 +582,18 @@ const eid = currentAdminEventId || "";
         const text = await resp.text();
         const json = JSON.parse(text);
         if (json.status === 'success' && Array.isArray(json.data)) {
-          // Merge: pertahankan record lokal yang belum sync, GAS sebagai source of truth untuk yang sudah ada
-          const merged = mergeData(getLocalData(), json.data);
-          saveLocalData(merged);
-          data = merged;
+          const eid = currentAdminEventId || "";
+          const replace = (eid !== lastLoadedEventId);
+          let dataToUse;
+          if (replace) {
+            // Event berubah → ganti cache, jangan merge (hindari data event lama muncul)
+            dataToUse = json.data.slice();
+          } else {
+            dataToUse = mergeData(getLocalData(), json.data);
+          }
+          saveLocalData(dataToUse);
+          data = dataToUse;
+          lastLoadedEventId = eid;
           renderAdminTable(data, tableBody, countHadir, countTotal, countLunas);
         }
       }
@@ -656,7 +763,7 @@ window.adminSetLunas = async function (regId) {
       try {
         await fetch(targetGasUrl, {
           method: "POST",
-          body: JSON.stringify({ action: "verifyPayment", regId: regId, status: "LUNAS", token: getAdminToken() })
+          body: JSON.stringify({ action: "verifyPayment", regId: regId, status: "LUNAS", eventId: currentAdminEventId || "", token: getAdminToken() })
         });
       } catch (e) {
         console.error("GAS verifyPayment error:", e);
@@ -689,7 +796,7 @@ window.adminSetHadir = async function (regId) {
       try {
         await fetch(targetGasUrl, {
           method: "POST",
-          body: JSON.stringify({ action: "presensi", regId: regId, token: getAdminToken() })
+          body: JSON.stringify({ action: "presensi", regId: regId, eventId: currentAdminEventId || "", token: getAdminToken() })
         });
       } catch (e) {
         console.error("GAS presensi error:", e);
@@ -732,7 +839,11 @@ function initOTSForm() {
     const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
     const currentEventName = customInfo.name || CONFIG.EVENT_INFO.NAME;
 
-    const newRegId = generateParticipantRegId(data);
+    // Deteksi apakah event yang sedang dibuka adalah sub-event
+    const currentEvMeta = (window.__adminEventsMap && window.__adminEventsMap[currentAdminEventId]) || null;
+    const currentEvName = (currentEvMeta && currentEvMeta.name) || currentEventName;
+
+    const newRegId = generateParticipantRegId(data, eventNamePrefix(currentEvName));
     const newTicketCode = generateUniqueTicketCode(currentEventName);
     const jamNow = new Date().toLocaleString('id-ID');
 
@@ -910,7 +1021,7 @@ async function processAdminScanResult(qrText) {
         if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
           fetch(targetGasUrl, {
             method: "POST",
-            body: JSON.stringify({ action: "presensi", regId: item.regId, token: getAdminToken() })
+            body: JSON.stringify({ action: "presensi", regId: item.regId, eventId: currentAdminEventId || "", token: getAdminToken() })
           }).catch(err => console.error("GAS presensi scan sync error:", err));
         }
       }
@@ -1099,7 +1210,7 @@ async function processAdminScanResult(qrText) {
           if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
             fetch(targetGasUrl, {
               method: "POST",
-              body: JSON.stringify({ action: "presensi", regId: item.regId, token: getAdminToken() })
+              body: JSON.stringify({ action: "presensi", regId: item.regId, eventId: currentAdminEventId || "", token: getAdminToken() })
             }).catch(err => console.error("GAS kiosk presensi sync error:", err));
           }
         }
@@ -1137,13 +1248,19 @@ async function processAdminScanResult(qrText) {
 
     // 8. Pengaturan Poster & Info Event + Reset Data Event + Google Integration
     function initEventSettings() {
-      const form = document.getElementById('event-settings-form');
-      if (!form) return;
+      const inputName = document.getElementById('set-event-name');
+      if (!inputName) return;
 
       // Load Existing Custom Event Info
       const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
       const inputParentEvent = document.getElementById('set-parent-event');
-      const inputName = document.getElementById('set-event-name');
+       const inputSubEventMode = document.getElementById('set-sub-event-mode');
+       const pfEmail = document.getElementById('pf-email');
+       const pfNowa = document.getElementById('pf-nowa');
+       const pfToko = document.getElementById('pf-toko');
+       const pfDomisili = document.getElementById('pf-domisili');
+       const pfBaju = document.getElementById('pf-baju');
+       const pfUpload = document.getElementById('pf-upload');
       const inputDate = document.getElementById('set-event-date');
       const inputVenue = document.getElementById('set-event-venue');
       const inputPosterUrl = document.getElementById('set-poster-url');
@@ -1184,6 +1301,25 @@ async function processAdminScanResult(qrText) {
             updateDeadlinePreview();
           }
         });
+
+        function toggleAdvancedSections() {
+          const hide = !!(inputSubEventMode && inputSubEventMode.checked);
+          document.querySelectorAll('[data-section="advanced"]').forEach(el => {
+            el.style.display = hide ? 'none' : '';
+          });
+        }
+        if (inputParentEvent) {
+          inputParentEvent.addEventListener('change', () => {
+            if (inputSubEventMode && inputParentEvent.value) {
+              inputSubEventMode.checked = true;
+              toggleAdvancedSections();
+            }
+          });
+        }
+        if (inputSubEventMode) {
+          inputSubEventMode.addEventListener('change', toggleAdvancedSections);
+          setTimeout(toggleAdvancedSections, 150);
+        }
       }
 
       function updateDeadlinePreview() {
@@ -1227,9 +1363,14 @@ async function processAdminScanResult(qrText) {
 
       if (inputDeadlineDatetime) {
         inputDeadlineDatetime.value = customInfo.deadlineDateTime || "";
-        inputDeadlineDatetime.addEventListener('input', updateDeadlinePreview);
-        inputDeadlineDatetime.addEventListener('change', updateDeadlinePreview);
-        updateDeadlinePreview();
+        inputDeadlineDatetime.addEventListener('input', () => {
+          if (typeof window.updateDeadlinePreview === 'function') window.updateDeadlinePreview();
+        });
+        inputDeadlineDatetime.addEventListener('change', () => {
+          if (typeof window.updateDeadlinePreview === 'function') window.updateDeadlinePreview();
+        });
+        if (typeof window.fillDeadlineControls === 'function') window.fillDeadlineControls();
+        if (typeof window.updateDeadlinePreview === 'function') window.updateDeadlinePreview();
       }
       if (inputClosedMessage) {
         inputClosedMessage.value = customInfo.closedMessage || "";
@@ -1242,7 +1383,7 @@ async function processAdminScanResult(qrText) {
       if (inputGasUrl) inputGasUrl.value = customInfo.gasApiUrl || CONFIG.GAS_API_URL || "";
       if (inputSheetUrl) inputSheetUrl.value = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "";
 
-      // Update Link Tombol Buka Sheet di Header Dashboard
+      // Update Link Tombol Buka Sheet di bagian Daftar Peserta Terdaftar
       const btnOpenSheet = document.getElementById('btn-open-sheet');
       if (btnOpenSheet) {
         btnOpenSheet.href = customInfo.sheetUrl || CONFIG.GOOGLE_SHEET_URL || "#";
@@ -1251,7 +1392,7 @@ async function processAdminScanResult(qrText) {
       // Sinkronisasi setting event terbaru dari GAS Cloud saat admin membuka portal
       const targetGasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
       if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-        fetch(`${targetGasUrl}?action=getSettings&t=${Date.now()}`, { redirect: 'follow' })
+        fetch(`${targetGasUrl}?action=getSettings&eventId=${encodeURIComponent(currentAdminEventId || '')}&t=${Date.now()}`, { redirect: 'follow' })
           .then(r => r.text())
           .then(text => {
             const json = JSON.parse(text);
@@ -1269,6 +1410,14 @@ async function processAdminScanResult(qrText) {
               if (inputBankName) inputBankName.value = cloudPayment.bankName || CONFIG.PAYMENT_INFO.BANK_NAME;
               if (inputBankAcc) inputBankAcc.value = cloudPayment.accountNumber || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
               if (inputBankHolder) inputBankHolder.value = cloudPayment.accountHolder || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
+               if (inputParentEvent) inputParentEvent.value = cloud.parentId || '';
+               if (inputSubEventMode) inputSubEventMode.checked = !!(cloud.isSubEvent || cloud.parentId);
+      const pf = cloud.participantFields || {};
+      if (pfEmail) pfEmail.checked = pf.email !== false;
+      if (pfNowa) pfNowa.checked = pf.noWa !== false;
+      if (pfToko) pfToko.checked = pf.namaToko !== false;
+      if (pfDomisili) pfDomisili.checked = pf.domisili !== false;
+      if (pfBaju) pfBaju.checked = pf.ukuranBaju !== false;
               
               if (inputDeadlineMode) {
                 inputDeadlineMode.value = cloud.deadlineMode || "unlimited";
@@ -1278,7 +1427,8 @@ async function processAdminScanResult(qrText) {
               }
               if (inputDeadlineDatetime) {
                 inputDeadlineDatetime.value = cloud.deadlineDateTime || "";
-                updateDeadlinePreview();
+                if (typeof window.fillDeadlineControls === 'function') window.fillDeadlineControls();
+                if (typeof window.updateDeadlinePreview === 'function') window.updateDeadlinePreview();
               }
               if (inputClosedMessage) inputClosedMessage.value = cloud.closedMessage || "";
               if (inputAdminEmail) inputAdminEmail.value = cloud.adminEmail || "";
@@ -1304,125 +1454,6 @@ async function processAdminScanResult(qrText) {
            window.open(`https://wa.me/${num}?text=${text}`, '_blank');
          });
        }
-
-       form.addEventListener('submit', (e) => {
-        e.preventDefault();
-
-        const parentEventId = inputParentEvent ? inputParentEvent.value.trim() : "";
-         const name = inputName.value.trim();
-        const date = inputDate.value.trim();
-        const venue = inputVenue.value.trim();
-        const posterUrlText = inputPosterUrl.value.trim();
-        const bankName = (inputBankName ? inputBankName.value.trim() : "") || CONFIG.PAYMENT_INFO.BANK_NAME;
-        const accountNumber = (inputBankAcc ? inputBankAcc.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_NUMBER;
-        const accountHolder = (inputBankHolder ? inputBankHolder.value.trim() : "") || CONFIG.PAYMENT_INFO.ACCOUNT_HOLDER;
-        
-        const deadlineMode = inputDeadlineMode ? inputDeadlineMode.value : "unlimited";
-        const deadlineDateTime = inputDeadlineDatetime ? inputDeadlineDatetime.value : "";
-        const closedMessage = inputClosedMessage ? inputClosedMessage.value.trim() : "";
-
-        const adminEmail = inputAdminEmail ? inputAdminEmail.value.trim() : "";
-         const waPanitiaNumber = toWaInternational(inputWaPanitia ? inputWaPanitia.value.trim() : "");
-        const driveFolder = inputDriveFolder ? inputDriveFolder.value.trim() : "";
-         const eventIdForSave = currentAdminEventId || "";
-        const gasApiUrl = inputGasUrl ? inputGasUrl.value.trim() : "";
-        const sheetUrl = inputSheetUrl ? inputSheetUrl.value.trim() : "";
-
-        const savedPaymentInfo = {
-          bankName: bankName,
-          accountNumber: accountNumber,
-          accountHolder: accountHolder
-        };
-
-        const updatedSettings = {
-          name,
-          date,
-          venue,
-          
-          paymentInfo: savedPaymentInfo,
-          deadlineMode,
-          deadlineDateTime,
-          closedMessage,
-          adminEmail,
-           waPanitiaNumber,
-          driveFolder,
-           eventId: eventIdForSave,
-           parentId: parentEventId,
-          gasApiUrl,
-          sheetUrl
-        };
-
-        if (btnOpenSheet && sheetUrl) {
-          btnOpenSheet.href = sheetUrl;
-        }
-
-        const fileInput = document.getElementById('set-poster-file');
-        const btnSave = form.querySelector('button[type="submit"]');
-        const originalBtnText = '<i class="ri-save-3-line"></i> Simpan Seluruh Pengaturan Event, Rekening, & Google Integration';
-
-        if (btnSave) {
-          btnSave.disabled = true;
-        }
-
-        if (fileInput && fileInput.files && fileInput.files.length > 0) {
-          const file = fileInput.files[0];
-
-          // Kompres gambar dulu, lalu upload ke Google Drive via GAS
-          if (btnSave) {
-            btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Mengupload Poster ke Google Drive (1/2)...';
-          }
-
-          compressAndSavePoster(file, function (compressedBase64) {
-            const targetGasUrl = updatedSettings.gasApiUrl || CONFIG.GAS_API_URL;
-
-            if (!CONFIG.USE_MOCK_DATA && targetGasUrl) {
-              // Upload poster ke Google Drive via GAS → dapat URL publik
-              fetch(targetGasUrl, {
-                method: "POST",
-                body: JSON.stringify({
-                  action: "uploadPoster",
-                  fileData: compressedBase64,
-                  fileName: file.name,
-                   token: getAdminToken()
-                })
-              })
-                .then(res => res.json())
-                .then(json => {
-                  if (json.status === "success" && json.posterUrl) {
-                    updatedSettings.posterUrl = json.posterUrl;
-                    if (inputPosterUrl) inputPosterUrl.value = json.posterUrl;
-                  } else {
-                    console.warn("Upload poster ke Drive gagal, fallback ke lokal:", json.message);
-                    updatedSettings.posterUrl = compressedBase64;
-                  }
-                  if (btnSave) {
-                    btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Menyimpan Pengaturan ke Cloud Google (2/2)...';
-                  }
-                  saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
-                })
-                .catch(err => {
-                  console.error("Koneksi GAS gagal saat upload poster:", err);
-                  updatedSettings.posterUrl = compressedBase64;
-                  if (btnSave) {
-                    btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Menyimpan Pengaturan ke Cloud Google...';
-                  }
-                  saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
-                });
-            } else {
-              // Mode lokal / mock: simpan base64 langsung
-              updatedSettings.posterUrl = compressedBase64;
-              saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
-            }
-          });
-        } else {
-          if (btnSave) {
-            btnSave.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Menyimpan ke Cloud Google...';
-          }
-          updatedSettings.posterUrl = posterUrlText || CONFIG.EVENT_INFO.POSTER_URL;
-          saveEventInfoToStorage(updatedSettings, btnSave, originalBtnText);
-        }
-      });
-    }
 
     // Kompres gambar poster agar aman disimpan di localStorage (maks ~800KB)
     function compressAndSavePoster(file, callback) {
@@ -1513,6 +1544,10 @@ async function processAdminScanResult(qrText) {
         showToast("🎉 Pengaturan Event berhasil disimpan!\n\n(Mode lokal — Untuk sinkronisasi ke semua HP/browser, pastikan URL GAS sudah diisi di tab Integrasi Google.)");
       }
     }
+    }
+
+
+
 
     window.resetAllEventData = function () {
       const modal = document.getElementById('reset-confirm-modal');
@@ -1577,7 +1612,7 @@ async function processAdminScanResult(qrText) {
         item.ticketCode = displayTicketCode;
         saveLocalData(data);
       }
-      const displayRegId = item.regId || "TSR-001";
+      const displayRegId = item.regId || "EVT-001";
 
       const isLunas = item.statusBayar === 'LUNAS';
       const statusBadgeText = isLunas ? 'LUNAS' : (item.statusBayar || 'BELUM LUNAS');

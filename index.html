@@ -27,18 +27,32 @@
       <h1 class="site-title" id="site-title-heading">SILATURAHMI AKBAR TESPOIN SUMBAR RIAU</h1>
     </header>
 
-    <!-- Event Selector (Multi-Event / Sub-Event) -->
-    <div class="glass-panel" style="padding:12px 16px; margin-bottom:16px;">
-      <label for="peserta-event-selector" style="font-size:0.85rem; font-weight:600; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.5px;">Pilih Event</label>
-      <select id="peserta-event-selector" style="margin-top:6px; width:100%; padding:10px 14px; border-radius:8px; background:rgba(15,23,42,0.6); color:#fff; border:1px solid rgba(255,255,255,0.15);">
-        <option value="">Memuat event...</option>
-      </select>
+    <!-- Event Search (Multi-Event / Sub-Event) -->
+    <div class="glass-panel" style="padding:12px 16px; margin-bottom:16px; position:relative; z-index:50;">
+      <label for="peserta-event-search" style="font-size:0.85rem; font-weight:600; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.5px;">Cari / Pilih Event</label>
+      <input type="text" id="peserta-event-search" placeholder="Ketik nama event untuk mencari..." autocomplete="off"
+        style="margin-top:6px; width:100%; padding:10px 14px; border-radius:8px; background:rgba(15,23,42,0.6); color:#fff; border:1px solid rgba(255,255,255,0.15);">
+      <div id="peserta-event-dropdown" style="display:none; position:absolute; left:12px; right:12px; top:calc(100% - 4px); margin-top:4px; background:#1e293b; border:1px solid rgba(99,102,241,0.4); border-radius:8px; max-height:260px; overflow-y:auto; z-index:1000; box-shadow:0 8px 24px rgba(0,0,0,0.5);"></div>
+      <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Ketik nama event, lalu klik salah satu hasil.</p>
+    </div>
+
+    <!-- Event Cards Grid -->
+    <div id="peserta-event-list-header" style="margin-bottom:8px;">
+      <h2 style="font-size:1.2rem; color:#fff; margin:0;">Pilih Event</h2>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin:4px 0 0 0;">Klik salah satu event di bawah untuk mendaftar.</p>
+    </div>
+    <div id="peserta-event-cards" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px; margin-bottom:16px; position:relative; z-index:1;"></div>
+
+    <!-- Back to event list (shown when an event is selected) -->
+    <div id="peserta-back-to-list" style="display:none; margin-bottom:16px;">
+      <a href="index.html" class="btn btn-secondary"><i class="ri-arrow-left-line"></i> Kembali ke Daftar Event</a>
     </div>
 
     <!-- Hero Banner Poster Event -->
     <div class="hero-poster-card">
       <div class="poster-img-wrapper">
-        <img id="poster-img" src="https://drive.google.com/thumbnail?id=1JQpNNh_zw5yYAL-j1t86tx2WtPC_Bvkq&sz=w1200-h1600" alt="Poster Event" class="poster-img">
+        <img id="poster-img" src="https://drive.google.com/thumbnail?id=1JQpNNh_zw5yYAL-j1t86tx2WtPC_Bvkq&sz=w1200-h1600" alt="Poster Event" class="poster-img" onerror="this.style.display='none'; this.parentElement.querySelector('.poster-fallback') && (this.parentElement.querySelector('.poster-fallback').style.display='flex');">
+        <div class="poster-fallback" style="display:none; align-items:center; justify-content:center; min-height:200px; color:var(--text-muted); font-size:0.9rem;">Poster tidak dapat dimuat. Periksa link poster.</div>
         <div class="poster-overlay">
           <h2 class="event-title-hero" id="event-name">SILATURAHMI AKBAR TESPOIN SUMBAR RIAU</h2>
           <div class="event-meta-grid">
@@ -70,6 +84,15 @@
       })();
     </script>
 
+    <!-- Inactive Event Banner -->
+    <div id="event-inactive-banner" class="glass-panel" style="display:none; border-color:var(--accent-rose); background:rgba(244,63,94,0.12); padding:24px; text-align:center; margin-bottom:16px;">
+      <div style="font-size:2.5rem; color:var(--accent-rose); margin-bottom:8px;"><i class="ri-forbid-2-line"></i></div>
+      <h2 style="color:#fff; font-size:1.3rem; margin:0;">EVENT TIDAK AKTIF</h2>
+      <p style="color:#fecaca; font-size:0.95rem; margin:8px 0 0 0;">Event ini saat ini tidak aktif. Silakan hubungi panitia untuk informasi lebih lanjut.</p>
+    </div>
+
+    <!-- Main Content (hidden until event selected) -->
+    <div id="peserta-main-content" style="display:none;">
     <!-- Navigation Tabs -->
     <nav class="tab-navigation" role="tablist" aria-label="Navigasi tab peserta">
       <button class="tab-btn active" data-tab="panel-register">
@@ -102,18 +125,15 @@
 
             <div class="form-group">
               <label for="reg-email">Alamat Email <span class="required-star">*</span></label>
-              <input type="email" id="reg-email" placeholder="contoh: budi@gmail.com" required>
-            </div>
+              <input type="email" id="reg-email" placeholder="contoh: budi@gmail.com">            </div>
 
             <div class="form-group">
               <label for="reg-nowa">No. WhatsApp / HP <span class="required-star">*</span></label>
-              <input type="tel" id="reg-nowa" placeholder="Contoh: 081234567890" required>
-            </div>
+              <input type="tel" id="reg-nowa" placeholder="Contoh: 081234567890">            </div>
 
             <div class="form-group">
-              <label for="reg-toko">Nama Toko / Usaha <span class="required-star">*</span></label>
-              <input type="text" id="reg-toko" placeholder="Contoh: Toko Berkah Jaya" required>
-            </div>
+              <label for="reg-toko">Nama Toko <span class="required-star">*</span></label>
+              <input type="text" id="reg-toko" placeholder="Contoh: Toko Berkah Jaya">            </div>
 
             <div class="form-group">
               <label for="reg-domisili">Domisili (Kota/Kabupaten) <span class="required-star">*</span></label>
@@ -122,7 +142,7 @@
 
             <div class="form-group">
               <label for="reg-baju">Ukuran Baju Event <span class="required-star">*</span></label>
-              <select id="reg-baju" required>
+              <select id="reg-baju">
                 <option value="" disabled selected>-- Pilih Ukuran Baju --</option>
                 <option value="M">Ukuran M</option>
                 <option value="L">Ukuran L</option>
@@ -175,7 +195,7 @@
         <form id="upload-form">
           <div class="form-group">
             <label for="upload-search-id">No. Registrasi / No. WA / Email <span class="required-star">*</span></label>
-            <input type="text" id="upload-search-id" placeholder="Masukkan No. TSR-..., Kode Tiket, atau No WA Anda" required>
+            <input type="text" id="upload-search-id" placeholder="Masukkan No. Peserta, Kode Tiket, atau No WA Anda" required>
           </div>
 
           <div class="form-group mt-2">
@@ -208,7 +228,7 @@
         <form id="check-status-form">
           <div class="form-group">
             <label for="status-query">Kata Kunci Pencarian <span class="required-star">*</span></label>
-            <input type="text" id="status-query" placeholder="Ketik No. TSR-..., Kode Tiket, Email, atau No WA..." required>
+            <input type="text" id="status-query" placeholder="Ketik No. Peserta, Kode Tiket, Email, atau No WA..." required>
           </div>
 
           <div class="mt-2">
@@ -221,6 +241,8 @@
         <div id="status-result-container"></div>
       </div>
     </section>
+
+    </div>
 
 
     <!-- Footer Watermark Developer Branding -->

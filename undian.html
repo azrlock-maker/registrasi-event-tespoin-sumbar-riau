@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Undian No. Peserta - Portal Panitia</title>
+
+  <!-- Remix Icon -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <style>
+    .undi-stage {
+      background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.25), rgba(15, 23, 42, 0.9) 70%);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 20px;
+      padding: 40px 24px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .undi-number {
+      font-family: monospace;
+      font-size: clamp(2.6rem, 12vw, 6.5rem);
+      font-weight: 900;
+      letter-spacing: 4px;
+      color: var(--accent-cyan);
+      line-height: 1.05;
+      text-shadow: 0 0 24px rgba(34, 211, 238, 0.55);
+      transition: color 0.2s;
+      word-break: break-word;
+    }
+    .undi-number.rolling { color: #fbbf24; text-shadow: 0 0 24px rgba(251, 191, 36, 0.6); }
+    .undi-number.winner { color: var(--accent-emerald); text-shadow: 0 0 30px rgba(16, 185, 129, 0.7); }
+    .undi-name { font-size: clamp(1.1rem, 4vw, 2rem); font-weight: 800; color: #fff; margin-top: 10px; }
+    .undi-sub { color: var(--text-muted); font-size: 0.95rem; margin-top: 4px; }
+    .undi-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 999px;
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 1px;
+    }
+    .undi-winner-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px; border-radius: 10px;
+      background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+
+    <!-- PANEL LOGIN (jika belum login) -->
+    <div id="undi-login-panel">
+      <div class="glass-panel text-center" style="max-width: 420px; margin: 60px auto;">
+        <div class="brand-badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.4);">
+          <i class="ri-gift-line"></i> Undian No. Peserta
+        </div>
+        <h2 class="mt-1" style="color: #fff;">LOGIN PANITIA</h2>
+        <p class="panel-subtitle">Masuk untuk mengakses fitur undian</p>
+
+        <form id="undi-login-form" class="mt-3" style="text-align: left;">
+          <div class="form-group">
+            <label for="undi-username">Username <span class="required-star">*</span></label>
+            <input type="text" id="undi-username" placeholder="Ketik Username..." required>
+          </div>
+          <div class="form-group mt-2">
+            <label for="undi-password">Password <span class="required-star">*</span></label>
+            <input type="password" id="undi-password" placeholder="Ketik Password..." required>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary btn-full">
+              <i class="ri-login-box-line"></i> Masuk
+            </button>
+          </div>
+        </form>
+        <p class="mt-2" style="font-size: 0.85rem;"><a href="admin.html" style="color: var(--accent-cyan);">&larr; Kembali ke Portal Admin</a></p>
+      </div>
+    </div>
+
+    <!-- PANEL UNDIAN (setelah login) -->
+    <div id="undi-dashboard" class="d-none">
+
+      <header class="site-header" style="text-align:left; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
+        <div>
+          <div class="brand-badge"><i class="ri-gift-2-line"></i> Undian No. Peserta</div>
+          <h1 class="site-title" style="font-size:1.8rem;">KOCOK UNDIAN TIKET</h1>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <a href="admin.html" class="btn btn-secondary"><i class="ri-arrow-left-line"></i> Portal Admin</a>
+          <button class="btn btn-secondary" onclick="undiLogout()"><i class="ri-logout-box-r-line"></i> Keluar</button>
+        </div>
+      </header>
+
+      <!-- Pemilihan Event -->
+      <div class="glass-panel" style="padding:16px; margin-bottom:20px;">
+        <div class="form-group">
+          <label for="undi-event-selector">Pilih Event (sumber data peserta)</label>
+          <select id="undi-event-selector" style="width:100%; padding:10px 12px; border-radius:8px; background:rgba(15,23,42,0.6); color:#fff; border:1px solid rgba(255,255,255,0.15);">
+            <option value="">Memuat event...</option>
+          </select>
+        </div>
+        <p id="undi-event-note" style="font-size:0.85rem; color:var(--text-muted); margin-top:8px;">
+          Pilih event sumber data peserta. Sub-event ditandai dengan tanda ↳. Awalan No. Peserta mengikuti nama event (mis. "Silaturahmi Akbar" → SA-001).
+        </p>
+      </div>
+
+      <!-- Panggung Undian -->
+      <div class="undi-stage">
+        <div style="margin-bottom:14px;">
+          <span id="undi-mode-badge" class="undi-badge" style="background:rgba(34,211,238,0.15); color:var(--accent-cyan);">EVENT UTAMA</span>
+          <span id="undi-total-badge" class="undi-badge" style="background:rgba(16,185,129,0.15); color:var(--accent-emerald); margin-left:6px;">0 PESERTA</span>
+        </div>
+        <div id="undi-number" class="undi-number">---</div>
+        <div id="undi-name" class="undi-name">Tekan "Mulai Undian"</div>
+        <div id="undi-sub" class="undi-sub">&nbsp;</div>
+      </div>
+
+      <!-- Kontrol -->
+      <div class="glass-panel" style="padding:18px; margin-bottom:20px;">
+        <div class="form-group" style="max-width:420px; margin:0 auto 14px auto;">
+          <label for="undi-durasi">Durasi Kocok (detik)</label>
+          <input type="number" id="undi-durasi" min="0.5" max="30" step="0.5" value="3"
+            style="width:100%; padding:10px 12px; border-radius:8px; background:rgba(15,23,42,0.6); color:#fff; border:1px solid rgba(255,255,255,0.15);">
+          <p style="font-size:0.78rem; color:var(--text-muted); margin-top:6px;">
+            Lama nomor dikocok acak sebelum berhenti otomatis di pemenang. Tekan <strong>STOP</strong> kapan saja untuk menghentikan manual.
+          </p>
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:center;">
+          <button id="undi-start-btn" class="btn btn-primary" style="font-size:1.1rem; padding:14px 28px; min-width:220px;" onclick="toggleUndian()">
+            <i class="ri-play-circle-line"></i> Mulai Undian
+          </button>
+          <button class="btn btn-secondary" onclick="resetUndian()"><i class="ri-refresh-line"></i> Reset Riwayat</button>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; justify-content:center; margin-top:14px; cursor:pointer; font-size:0.9rem; color:#cbd5e1;">
+          <input type="checkbox" id="undi-exclude-winners" style="width:auto;" checked>
+          Jangan pilih pemenang yang sudah keluar (tanpa pengembalian)
+        </label>
+      </div>
+
+      <!-- Riwayat Pemenang -->
+      <div class="glass-panel" style="padding:18px;">
+        <h3 style="color:#fff; margin:0 0 12px 0; font-size:1.1rem;"><i class="ri-trophy-line" style="color:var(--accent-amber, #fbbf24);"></i> Riwayat Pemenang</h3>
+        <div id="undi-history"><p style="color:var(--text-muted); font-size:0.9rem; margin:0;">Belum ada pemenang.</p></div>
+      </div>
+
+      <footer class="app-watermark-footer">
+        <div class="watermark-badge">
+          <i class="ri-code-s-slash-line" style="color: var(--accent-cyan);"></i>
+          <span>Crafted &amp; Developed by <strong>radh29</strong></span>
+        </div>
+      </footer>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/utils.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app-undian.js"></script>
+</body>
+
+</html>
