@@ -167,10 +167,10 @@ window.createNewEvent = async function () {
     });
     const json = await resp.json();
     if (json.status === 'success') {
-      showToast("Event baru dibuat: " + name, "success");
-      await switchAdminEvent(eventId);
+      showToast("Event baru dibuat: " + name + ". Klik 'Edit' untuk isi detail.", "success");
       renderAdminEventsList();
     } else {
+      console.error('[createNewEvent] GAS response:', json);
       showToast(json.message || "Gagal membuat event", "error");
     }
   } catch (e) {
