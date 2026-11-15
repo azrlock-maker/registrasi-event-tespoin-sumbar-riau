@@ -147,7 +147,7 @@ async function renderAdminEventsList() {
               <button class="btn btn-emerald" style="padding:4px 8px; font-size:0.75rem;" onclick="toggleAdminEventActive('${escapeHtml(ev.eventId)}', ${!ev.active})">
                 <i class="ri-${ev.active ? 'close' : 'check'}-line"></i> ${ev.active ? 'Nonaktifkan' : 'Aktifkan'}
               </button>
-              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}'); document.querySelector('.admin-tab-btn[data-tab=\\'panel-settings\\']').click();"><i class="ri-edit-line"></i> Edit</button>
+              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}').then(()=>{document.querySelector('.admin-tab-btn[data-tab=\\'panel-settings\\']').click(); setTimeout(()=>{document.getElementById('event-settings-form').scrollIntoView({behavior:'smooth'});},200);});"><i class="ri-edit-line"></i> Edit</button>
               <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; background:linear-gradient(135deg,#f43f5e,#e11d48);" onclick="deleteAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-delete-bin-line"></i> Hapus</button>
             </div>
           </td>
@@ -290,7 +290,7 @@ async function loadAdminEventSettings(eventId) {
       const inputGasUrl = document.getElementById('set-gas-url');
       const inputSheetUrl = document.getElementById('set-sheet-url');
       const groupDeadlineDatetime = document.getElementById('group-deadline-datetime');
-      populateParentEventSelector(eventId);
+      await populateParentEventSelector(eventId);
       if (inputParentEvent) inputParentEvent.value = cloud.parentId || '';
       if (inputName) inputName.value = cloud.name || '';
       if (inputDate) inputDate.value = cloud.date || '';
