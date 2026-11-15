@@ -144,7 +144,9 @@ async function renderAdminEventsList() {
           <td>${ev.active ? '<span class="badge badge-success">AKTIF</span>' : '<span class="badge badge-warning">Nonaktif</span>'}</td>
           <td>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
-              ${!ev.active ? `<button class="btn btn-emerald" style="padding:4px 8px; font-size:0.75rem;" onclick="setActiveAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-check-line"></i> Aktifkan</button>` : ''}
+              <button class="btn btn-emerald" style="padding:4px 8px; font-size:0.75rem;" onclick="toggleAdminEventActive('${escapeHtml(ev.eventId)}', ${!ev.active})">
+                <i class="ri-${ev.active ? 'close' : 'check'}-line"></i> ${ev.active ? 'Nonaktifkan' : 'Aktifkan'}
+              </button>
               <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-edit-line"></i> Edit</button>
               <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; background:linear-gradient(135deg,#f43f5e,#e11d48);" onclick="deleteAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-delete-bin-line"></i> Hapus</button>
             </div>
@@ -215,18 +217,18 @@ window.deleteAdminEvent = async function (eventId) {
   }
 };
 
-window.setActiveAdminEvent = async function (eventId) {
+window.toggleAdminEventActive = async function (eventId, active) {
   const token = getAdminToken();
   const customInfo = JSON.parse(localStorage.getItem('CUSTOM_EVENT_INFO') || '{}');
   const gasUrl = customInfo.gasApiUrl || CONFIG.GAS_API_URL;
   try {
     const resp = await fetch(gasUrl, {
       method: 'POST',
-      body: JSON.stringify({ action: 'setActiveEvent', eventId: eventId, token: token })
+      body: JSON.stringify({ action: 'toggleEventActive', eventId: eventId, active: active, token: token })
     });
     const json = await resp.json();
     if (json.status === 'success') {
-      showToast("Event aktif diperbarui", "success");
+      showToast(active ? "Event diaktifkan" : "Event dinonaktifkan", "success");
       renderAdminEventsList();
     } else {
       showToast(json.message || "Gagal", "error");
