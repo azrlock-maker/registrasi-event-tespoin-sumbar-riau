@@ -147,7 +147,7 @@ async function renderAdminEventsList() {
               <button class="btn btn-emerald" style="padding:4px 8px; font-size:0.75rem;" onclick="toggleAdminEventActive('${escapeHtml(ev.eventId)}', ${!ev.active})">
                 <i class="ri-${ev.active ? 'close' : 'check'}-line"></i> ${ev.active ? 'Nonaktifkan' : 'Aktifkan'}
               </button>
-              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-edit-line"></i> Edit</button>
+              <button class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="switchAdminEvent('${escapeHtml(ev.eventId)}'); document.querySelector('.admin-tab-btn[data-tab=\\'panel-settings\\']').click();"><i class="ri-edit-line"></i> Edit</button>
               <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; background:linear-gradient(135deg,#f43f5e,#e11d48);" onclick="deleteAdminEvent('${escapeHtml(ev.eventId)}')"><i class="ri-delete-bin-line"></i> Hapus</button>
             </div>
           </td>
@@ -269,8 +269,8 @@ async function loadAdminEventSettings(eventId) {
   try {
     const resp = await fetch(`${gasUrl}?action=getSettings&eventId=${encodeURIComponent(eventId)}`, { redirect: 'follow' });
     const json = await resp.json();
-    if (json.status === 'success' && json.settings) {
-      const cloud = json.settings;
+    if (json.status === 'success') {
+      const cloud = json.settings || {};
       localStorage.setItem('CUSTOM_EVENT_INFO', JSON.stringify(cloud));
       // populate form
       const inputParentEvent = document.getElementById('set-parent-event');
@@ -314,6 +314,7 @@ async function loadAdminEventSettings(eventId) {
     }
   } catch (e) {
     console.warn('[loadAdminEventSettings]', e);
+    showToast("Gagal memuat settings event", "error");
   }
 }
 
